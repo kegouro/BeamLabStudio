@@ -1,9 +1,9 @@
-================================================================================
-                    BEAMLABSTUDIO v0.1.0 - README BILINGÜE COMPLETO
-              Plataforma Científica para Análisis de Haces y Reconstrucción Óptica
-                              Por José Labarca - CCTVal / USM
-                              "Por y para el mundo"
-================================================================================
+
+                    BEAMLABSTUDIO v0.1.0 - README BILINGÜE 
+          Plataforma Científica para Análisis de Haces y Reconstrucción Óptica
+                            Por José Labarca
+                          "Por y para el mundo"
+
 
 ================================================================================
                               ENGLISH VERSION
