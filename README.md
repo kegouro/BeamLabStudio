@@ -1,57 +1,49 @@
-
-                    BEAMLABSTUDIO v0.1.0 - README BILINGÜE 
-          Plataforma Científica para Análisis de Haces y Reconstrucción Óptica
-                            Por José Labarca
-                 Jlabarca@usm.cl/Joselabarcabaeza11@hotmail.com
-                          "Por y para el mundo"
-
-                              
-================================================================================
-
-ENGLISH VERSION
-
 # BeamLabStudio v0.1.0
 
 **Cross-platform scientific application for beam trajectory analysis, optical surface reconstruction, and Monte Carlo simulation post-processing.**
 
-> **Author's Note (José Labarca):**  
-> I study Physics (4th year, Universidad Santa María - Chile), not Computer Science.  
-> I built this entire thing from scratch in roughly two weeks while preparing for exams,  
-> taking my IELTS (C1), and surviving a Quantum Mechanics II test that went... let's just say "character building".  
-> If you find a bug, please fix it for me — I'm probably at KIT in Germany by the time you read this.  
-> The Linux build works perfectly. Windows works too (I cross-compiled it myself from Fedora).  
-> Pull requests are extremely welcome. This project started as a quick viewer for muon beam simulations  
-> at CCTVal for cancer therapy research... and then it exploded into something much bigger.
-
-**This is the full professional rewrite of my earlier prototype [MuonSimViewer](https://github.com/kegouro/MuonSimViewer).**  
-MuonSimViewer was the "weekend hack" version. BeamLabStudio is the production-grade, bit-equivalent,  
-cross-platform, fully documented tool you can actually use in a real research lab.
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version 0.1.0">
+  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C" alt="C++20">
+  <img src="https://img.shields.io/badge/Qt-6-41CD52" alt="Qt 6">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/status-v0.1.0%20stable-success" alt="Stable">
+  <img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License">
+</p>
 
 ---
 
-## THE MANIFESTO (Please Read)
+## Author's Note
+
+> I study Physics (4th year, Universidad Santa María - Chile), not Computer Science.  
+> I built this entire thing from scratch in roughly two weeks while preparing for exams, taking my IELTS (C1), and surviving a Quantum Mechanics II test that went... let's just say "character building".  
+> If you find a bug, please fix it for me — I'm probably at KIT in Germany by the time you read this.  
+> The Linux build works perfectly. Windows works too (I cross-compiled it myself from Fedora).  
+> Pull requests are extremely welcome. This project started as a quick viewer for muon beam simulations at CCTVal for cancer therapy research... and then it exploded into something much bigger.
+
+**This is the full professional rewrite** of my earlier prototype [MuonSimViewer](https://github.com/kegouro/MuonSimViewer).  
+MuonSimViewer was the "weekend hack" version. BeamLabStudio is the production-grade, bit-equivalent, cross-platform, fully documented tool you can actually use in a real research lab.
+
+---
+
+## The Manifesto
 
 This software was created **for science, by a physicist who was tired of bad tools**.  
-It exists **for the world** — for students, researchers, national labs, and anyone working on  
-muon beam therapy for cancer at CCTVal-USM or anywhere else on Earth.
+It exists **for the world** — for students, researchers, national labs, and anyone working on muon beam therapy for cancer at CCTVal-USM or anywhere else on Earth.
 
 **However, with great power comes great responsibility:**
 
 **COMMERCIAL USE, SALE, OR ANY FORM OF MONETIZATION IS STRICTLY PROHIBITED**  
-without my explicit written permission. This includes BeamLabStudio itself and **all derivatives**,  
-forks, or spiritual successors (including the original MuonSimViewer prototype).
+without my explicit written permission. This includes BeamLabStudio itself and **all derivatives**, forks, or spiritual successors (including the original MuonSimViewer prototype).
 
-This is academic and research software. I built it unpaid, during exam season, while learning COMSOL  
-from zero in one week and then deciding the existing tools were not good enough.  
-If you want to use it commercially, talk to me first. I'm not against making money —  
-I'm against people making money off my all-nighters and quantum mechanics-induced stress.
+This is academic and research software. I built it unpaid, during exam season, while learning COMSOL from zero in one week and then deciding the existing tools were not good enough.  
+If you want to use it commercially, talk to me first. I'm not against making money — I'm against people making money off my all-nighters and quantum mechanics-induced stress.
 
 ---
 
 ## What is BeamLabStudio?
 
-BeamLabStudio is a complete, self-contained scientific computing platform that takes raw  
-particle trajectory data (from Geant4, COMSOL, or CERN ROOT) and turns it into:
+BeamLabStudio is a complete, self-contained scientific computing platform that takes raw particle trajectory data (from Geant4, COMSOL, or CERN ROOT) and turns it into:
 
 - Beautiful 3D visualizations
 - Quantitative beam physics metrics (focus position, RMS radius, envelope area, efficiency, etc.)
@@ -59,18 +51,15 @@ particle trajectory data (from Geant4, COMSOL, or CERN ROOT) and turns it into:
 - Publication-ready reports (PDF + CSV + OBJ meshes + parametric equations)
 - Animated MP4 videos of the beam evolution
 
-It was designed specifically for the muon beam cancer therapy project at CCTVal, but it is  
-general enough for any charged particle beam transport problem.
+It was designed specifically for the muon beam cancer therapy project at CCTVal, but it is general enough for any charged particle beam transport problem.
 
 ---
 
-## Key Features (Detailed)
+## Key Features
 
 ### 1. Intelligent Multi-Format Import
-- **COMSOL CSV**: Automatically detects both "wide" format (columns with @ t=...) and "long" format.  
-  No manual column mapping required.
-- **Geant4 CSV**: Full support for standard Geant4 output (x_cm, y_cm, z_cm, time_ns, trackID, eventID, etc.).  
-  Automatically converts cm→m and ns→s.
+- **COMSOL CSV**: Automatically detects both "wide" format (columns with @ t=...) and "long" format. No manual column mapping required.
+- **Geant4 CSV**: Full support for standard Geant4 output (x_cm, y_cm, z_cm, time_ns, trackID, eventID, etc.). Automatically converts cm→m and ns→s.
 - **CERN ROOT**: Native support on Linux (optional build flag). On Windows you must first convert to CSV.
 
 ### 2. Complete Physics Analysis Pipeline
@@ -94,8 +83,7 @@ beamlab --input data.csv --output results/run42 --caustic-points 128 --lens-laye
 Perfect for cluster jobs and batch processing.
 
 ### 5. Numerically Reproducible
-The Windows and Linux versions produce **bit-identical** output (IEEE 754).  
-This was achieved by rewriting the entire post-processing pipeline in pure C++.
+The Windows and Linux versions produce **bit-identical** output (IEEE 754). This was achieved by rewriting the entire post-processing pipeline in pure C++20.
 
 ### 6. Rich Export Formats
 - 3D: .obj (full meshes + preview decimated versions)
@@ -110,26 +98,24 @@ This was achieved by rewriting the entire post-processing pipeline in pure C++.
 
 ### Windows (Easiest)
 
-**Option A - Installer (Recommended)**
+**Option A — Installer (Recommended)**
 1. Download `BeamLabStudio_Setup_Windows_x64.exe` from Releases
 2. Double-click → Next → Next → Install (no admin rights needed)
-3. The app launches automatically
+3. The app launches automatically when done
 
-**Option B - Portable**
+**Option B — Portable**
 1. Download `BeamLabStudio_Portable_Windows_x64.exe`
 2. Extract anywhere (USB stick works)
 3. Run `BeamLabStudio.exe`
 
-> **OneDrive Warning**: Do NOT run the installer from a OneDrive-synced folder.  
-> OneDrive sometimes leaves large .exe files as unsynced placeholders, causing "Installer integrity check failed".  
-> Move the file to `C:\Downloads\` or `C:\Temp\` first.
+> **OneDrive Warning**: Do NOT run the installer directly from a OneDrive-synced folder. OneDrive sometimes leaves large .exe files as unsynced placeholders, causing "Installer integrity check has failed". Move the file to `C:\Downloads\` or `C:\Temp\` first.
 
-### Linux (Native - Recommended for Development)
+### Linux (Native — Recommended for Development)
 
 **Prerequisites**
 ```bash
 sudo dnf install cmake ninja gcc-c++ qt6-qtbase-devel qt6-qtcharts-devel \
-                 vtk-devel nlohmann-json-devel  # or equivalent on Ubuntu
+                 vtk-devel nlohmann-json-devel   # or equivalent on Ubuntu
 ```
 
 **Build**
@@ -151,7 +137,7 @@ cmake --build build-root -j$(nproc)
 ```
 
 **Cross-compiling Windows binaries from Fedora (for maintainers)**
-See the full instructions in the original README — it involves MinGW-w64, NSIS, and careful DLL pruning.
+See the full instructions in the repository — it involves MinGW-w64, NSIS, and careful DLL pruning.
 
 ---
 
@@ -225,8 +211,7 @@ COMSOL can export trajectory data in two completely different formats:
 - **Wide format**: One row per particle, hundreds of columns like `qx @ t=0.1ns`, `qy @ t=0.1ns`, ...
 - **Long format**: One row per (particle, time) pair
 
-BeamLabStudio automatically detects which format you have and parses it correctly.  
-The parser even handles Spanish-accented headers (`posición de partícula`) and weird whitespace.
+BeamLabStudio automatically detects which format you have and parses it correctly. The parser even handles Spanish-accented headers (`posición de partícula`) and weird whitespace.
 
 ### 2. Focus Detection
 We compute multiple metrics per time step:
@@ -234,20 +219,15 @@ We compute multiple metrics per time step:
 - Convex hull area
 - Particle count inside acceptance aperture
 
-The focus is defined as the time step with the global minimum of the chosen metric.  
-You can override the metric with `--reference-mode`.
+The focus is defined as the time step with the global minimum of the chosen metric. You can override the metric with `--reference-mode`.
 
 ### 3. Surface Reconstruction
-The "effective lens body" is generated by lofting the beam envelope at the focal slice  
-and giving it realistic thickness (thicker in the center, thinner at the edges — like a real magnetic lens).
+The "effective lens body" is generated by lofting the beam envelope at the focal slice and giving it realistic thickness (thicker in the center, thinner at the edges — like a real magnetic lens).
 
 ### 4. Bit-Exact Reproducibility
-This was the biggest engineering challenge. The original Windows post-processing used PowerShell,  
-which produced **geometrically different** lens bodies than the Python reference.
+This was the biggest engineering challenge. The original Windows post-processing used PowerShell, which produced **geometrically different** lens bodies than the Python reference.
 
-Solution: I rewrote every single line of the post-processing in pure C++20,  
-using the exact same floating-point operations, iteration order, and output formatting (`%.12e`).  
-Result: `diff` between Linux and Windows outputs shows zero differences.
+Solution: I rewrote every single line of the post-processing in pure C++20, using the exact same floating-point operations, iteration order, and output formatting (`%.12e`). Result: `diff` between Linux and Windows outputs shows zero differences.
 
 ---
 
@@ -271,36 +251,28 @@ All the mathematical details (how we compute r_rms, how we loft the lens, how we
 - [x] Core analysis engine (Linux + Windows bit-equivalent)
 - [x] Qt6 GUI with 3D viewer
 - [x] PDF + MP4 + OBJ export
-- [ ] GitHub Actions CI for automatic releases
-- [ ] Code signing for Windows (kill the SmartScreen warning)
-- [ ] AppImage for Linux
-- [ ] Full CERN ROOT support in Windows build (currently Linux-only)
-- [ ] Machine learning assisted focus detection (future research)
-- [ ] WebAssembly version for browser demo
+- [ ] GitHub Actions CI: auto-build releases on tag (Linux + Windows cross-compile matrix)
+- [ ] Code signing for Windows (eliminate SmartScreen warning on first run)
+- [ ] AppImage for Linux (one-click distribution parity with Windows)
+- [ ] CERN ROOT support in Windows build (currently blocked by cross-compilation complexity)
+- [ ] Bit-equivalence validation against a real large dataset (not just synthetic fixture)
+- [ ] Automated regression tests comparing Linux vs Windows outputs in CI
 
 ---
 
 ## License
 
-MIT License — **with an important extra clause**:
+MIT — see [LICENSE](LICENSE) for details.
 
-**No commercial use or monetization of any kind is allowed** without explicit written permission from José Labarca.  
-This applies to BeamLabStudio and every derivative work, including MuonSimViewer.
-
-I built this for science and for the muon therapy project at CCTVal.  
-Let's keep it that way.
-
-Full license text is in the `LICENSE` file in the repository.
+**Important extra clause**: Commercial use, sale, or any form of monetization of this software (or any derivative, fork, or descendant — including MuonSimViewer) is **strictly prohibited** without explicit written permission from the author.
 
 ---
 
-## Credits & Acknowledgments
+## Credits
 
-- **Author & Architect**: José Labarca (Universidad Santa María, CCTVal — muon beam cancer therapy)
-- **Windows packaging & C++ post-process port**: Claude (Anthropic) — thank you for the 3am debugging sessions
-- **Libraries**: Qt 6, VTK, nlohmann/json, CERN ROOT, MinGW-w64, NSIS
-- **Inspiration**: The muon group at CCTVal who actually need good analysis tools
-- **Personal thanks**: To my professors who let me work on this instead of forcing me to use only COMSOL
+- **Author**: José Labarca
+- **Windows packaging / C++ postprocess port**: Claude (Anthropic)
+- **Dependencies**: Qt 6 (LGPL), nlohmann/json (MIT), MinGW-w64, NSIS (zlib license), CERN ROOT (LGPL)
 
 ---
 
@@ -311,54 +283,44 @@ I would love to know that this thing I built during exam hell is actually helpin
 
 — José
 
-
-                          
 ================================================================================
-
-VERSIÓN EN ESPAÑOL
+                           VERSIÓN EN ESPAÑOL
+================================================================================
 
 # BeamLabStudio v0.1.0
 
 **Aplicación científica multiplataforma para análisis de trayectorias de haces, reconstrucción de superficies ópticas y post-proceso de simulaciones Monte Carlo.**
 
-> **Nota del autor (José Labarca):**  
-> Estudio Licenciatura en Física (4to año, Universidad Santa María - Chile), no Ingeniería Informática.  
-> Hice todo esto desde cero en aproximadamente dos semanas mientras rendía certámenes,  
-> daba el IELTS (saqué C1) y sobrevivía un examen de Cuántica II que fue... digamos que "formador de carácter".  
-> Si encontrás un bug, por favor arreglalo por mí — probablemente ya estaré en KIT en Alemania cuando leas esto.  
-> La versión Linux funciona perfecto. La de Windows también (la cross-compileé yo mismo desde Fedora).  
-> Los pull requests son extremadamente bienvenidos. Este proyecto empezó como un visor rápido para simulaciones  
-> de haces de muones en el CCTVal para investigación de terapia contra el cáncer... y después explotó en algo mucho más grande.
+> **Nota del autor (José Labarca):**
+> Estudio Licenciatura en Física (4to año, Universidad Santa María - Chile), no Ingeniería Informática.
+> Hice todo esto desde cero en aproximadamente dos semanas mientras rendía certámenes, daba el IELTS (saqué C1) y sobrevivía un examen de Cuántica II que fue... digamos que "formador de carácter".
+> Si encontrás un bug, por favor arreglalo por mí — probablemente ya estaré en KIT en Alemania cuando leas esto.
+> La versión Linux funciona perfecto. La de Windows también (la cross-compileé yo mismo desde Fedora).
+> Los pull requests son extremadamente bienvenidos. Este proyecto empezó como un visor rápido para simulaciones de haces de muones en el CCTVal para investigación de terapia contra el cáncer... y después explotó en algo mucho más grande.
 
-**Esta es la reescritura profesional completa de mi prototipo anterior [MuonSimViewer](https://github.com/kegouro/MuonSimViewer).**  
-MuonSimViewer fue la versión "hack de fin de semana". BeamLabStudio es la herramienta de grado de producción,  
-bit-equivalente, multiplataforma y completamente documentada que realmente podés usar en un laboratorio de investigación.
+**Esta es la reescritura profesional completa** de mi prototipo anterior [MuonSimViewer](https://github.com/kegouro/MuonSimViewer).  
+MuonSimViewer fue la versión "hack de fin de semana". BeamLabStudio es la herramienta de grado de producción, bit-equivalente, multiplataforma y completamente documentada que realmente podés usar en un laboratorio de investigación.
 
 ---
 
-## EL MANIFIESTO (Por favor leé esto)
+## El Manifiesto
 
 Este software fue creado **para la ciencia, por un físico harto de herramientas malas**.  
-Existe **para el mundo** — para estudiantes, investigadores, laboratorios nacionales y cualquiera que esté trabajando  
-en terapia con haces de muones para cáncer en el CCTVal-USM o en cualquier otro lugar de la Tierra.
+Existe **para el mundo** — para estudiantes, investigadores, laboratorios nacionales y cualquiera que esté trabajando en terapia con haces de muones para cáncer en el CCTVal-USM o en cualquier otro lugar de la Tierra.
 
 **Sin embargo, con gran poder viene gran responsabilidad:**
 
 **EL USO COMERCIAL, VENTA O CUALQUIER FORMA DE MONETIZACIÓN ESTÁ ESTRICTAMENTE PROHIBIDA**  
-sin mi permiso expreso por escrito. Esto incluye BeamLabStudio mismo y **todos los derivados**,  
-forks o sucesores espirituales (incluyendo el prototipo original MuonSimViewer).
+sin mi permiso expreso por escrito. Esto incluye BeamLabStudio mismo y **todos los derivados**, forks o sucesores espirituales (incluyendo el prototipo original MuonSimViewer).
 
-Esto es software académico y de investigación. Lo construí sin cobrar, durante época de exámenes,  
-mientras aprendía COMSOL desde cero en una semana y después decidí que las herramientas existentes no eran lo suficientemente buenas.  
-Si querés usarlo comercialmente, hablame primero. No estoy en contra de hacer plata —  
-estoy en contra de que alguien haga plata con mis noches en blanco y estrés por Cuántica II.
+Esto es software académico y de investigación. Lo construí sin cobrar, durante época de exámenes, mientras aprendía COMSOL desde cero en una semana y después decidí que las herramientas existentes no eran lo suficientemente buenas.  
+Si querés usarlo comercialmente, hablame primero. No estoy en contra de hacer plata — estoy en contra de que alguien haga plata con mis noches en blanco y estrés por Cuántica II.
 
 ---
 
 ## ¿Qué es BeamLabStudio?
 
-BeamLabStudio es una plataforma completa de computación científica autocontenida que toma datos crudos  
-de trayectorias de partículas (de Geant4, COMSOL o CERN ROOT) y los convierte en:
+BeamLabStudio es una plataforma completa de computación científica autocontenida que toma datos crudos de trayectorias de partículas (de Geant4, COMSOL o CERN ROOT) y los convierte en:
 
 - Visualizaciones 3D hermosas
 - Métricas cuantitativas de física de haces (posición de foco, radio RMS, área de envolvente, eficiencia, etc.)
@@ -366,18 +328,15 @@ de trayectorias de partículas (de Geant4, COMSOL o CERN ROOT) y los convierte e
 - Reportes listos para publicación (PDF + CSV + mallas OBJ + ecuaciones paramétricas)
 - Videos animados MP4 de la evolución del haz
 
-Fue diseñado específicamente para el proyecto de terapia con haces de muones contra el cáncer en el CCTVal,  
-pero es lo suficientemente general para cualquier problema de transporte de partículas cargadas.
+Fue diseñado específicamente para el proyecto de terapia con haces de muones contra el cáncer en el CCTVal, pero es lo suficientemente general para cualquier problema de transporte de partículas cargadas.
 
 ---
 
-## Características Principales (Detalladas)
+## Características Principales
 
 ### 1. Importación Inteligente Multi-Formato
-- **COMSOL CSV**: Detecta automáticamente tanto el formato "ancho" (columnas con @ t=...) como el formato "largo".  
-  No requiere mapeo manual de columnas.
-- **Geant4 CSV**: Soporte completo para la salida estándar de Geant4 (x_cm, y_cm, z_cm, time_ns, trackID, eventID, etc.).  
-  Convierte automáticamente cm→m y ns→s.
+- **COMSOL CSV**: Detecta automáticamente tanto el formato "ancho" (columnas con @ t=...) como el formato "largo". No requiere mapeo manual de columnas.
+- **Geant4 CSV**: Soporte completo para la salida estándar de Geant4 (x_cm, y_cm, z_cm, time_ns, trackID, eventID, etc.). Convierte automáticamente cm→m y ns→s.
 - **CERN ROOT**: Soporte nativo en Linux (flag de compilación opcional). En Windows primero tenés que convertir a CSV.
 
 ### 2. Pipeline Completo de Análisis Físico
@@ -401,8 +360,7 @@ beamlab --input datos.csv --output resultados/corrida42 --caustic-points 128 --l
 Perfecto para trabajos en cluster y procesamiento por lotes.
 
 ### 5. Reproducibilidad Numérica
-Las versiones de Windows y Linux producen salida **bit-idéntica** (IEEE 754).  
-Esto se logró reescribiendo todo el pipeline de post-proceso en C++ puro.
+Las versiones de Windows y Linux producen salida **bit-idéntica** (IEEE 754). Esto se logró reescribiendo todo el pipeline de post-proceso en C++ puro.
 
 ### 6. Formatos de Exportación Ricos
 - 3D: .obj (mallas completas + versiones decimadas para vista previa)
@@ -417,26 +375,24 @@ Esto se logró reescribiendo todo el pipeline de post-proceso en C++ puro.
 
 ### Windows (Lo Más Fácil)
 
-**Opción A - Instalador (Recomendado)**
+**Opción A — Instalador (Recomendado)**
 1. Descargá `BeamLabStudio_Setup_Windows_x64.exe` desde Releases
 2. Doble clic → Siguiente → Siguiente → Instalar (no requiere derechos de administrador)
 3. La aplicación se abre automáticamente
 
-**Opción B - Portable**
+**Opción B — Portable**
 1. Descargá `BeamLabStudio_Portable_Windows_x64.exe`
 2. Extraé donde quieras (funciona en pendrive)
 3. Ejecutá `BeamLabStudio.exe`
 
-> **Advertencia de OneDrive**: NO ejecutes el instalador desde una carpeta sincronizada con OneDrive.  
-> OneDrive a veces deja archivos .exe grandes como placeholders sin sincronizar, causando "Installer integrity check failed".  
-> Mové el archivo primero a `C:\Downloads\` o `C:\Temp\`.
+> **Advertencia de OneDrive**: NO ejecutes el instalador desde una carpeta sincronizada con OneDrive. OneDrive a veces deja archivos .exe grandes como placeholders sin sincronizar, causando "Installer integrity check failed". Mové el archivo primero a `C:\Downloads\` o `C:\Temp\`.
 
-### Linux (Nativo - Recomendado para Desarrollo)
+### Linux (Nativo — Recomendado para Desarrollo)
 
 **Prerrequisitos**
 ```bash
 sudo apt install cmake ninja-build g++ qt6-base-dev qt6-charts-dev \
-                 libvtk9-dev nlohmann-json3-dev  # o equivalente en tu distro
+                 libvtk9-dev nlohmann-json3-dev   # o equivalente en tu distro
 ```
 
 **Compilación**
@@ -458,7 +414,7 @@ cmake --build build-root -j$(nproc)
 ```
 
 **Cross-compilación de binarios Windows desde Fedora (para mantenedores)**
-Ver las instrucciones completas en el README original — involucra MinGW-w64, NSIS y podado cuidadoso de DLLs.
+Ver las instrucciones completas en el repositorio — involucra MinGW-w64, NSIS y podado cuidadoso de DLLs.
 
 ---
 
@@ -532,8 +488,7 @@ COMSOL puede exportar datos de trayectorias en dos formatos completamente difere
 - **Formato ancho**: Una fila por partícula, cientos de columnas como `qx @ t=0.1ns`, `qy @ t=0.1ns`, ...
 - **Formato largo**: Una fila por cada par (partícula, tiempo)
 
-BeamLabStudio detecta automáticamente qué formato tenés y lo parsea correctamente.  
-El parser incluso maneja encabezados con acentos en español (`posición de partícula`) y espacios raros.
+BeamLabStudio detecta automáticamente qué formato tenés y lo parsea correctamente. El parser incluso maneja encabezados con acentos en español (`posición de partícula`) y espacios raros.
 
 ### 2. Detección de Foco
 Calculamos múltiples métricas por paso de tiempo:
@@ -541,20 +496,15 @@ Calculamos múltiples métricas por paso de tiempo:
 - Área del casco convexo
 - Cantidad de partículas dentro de la apertura de aceptación
 
-El foco se define como el paso de tiempo con el mínimo global de la métrica elegida.  
-Podés sobrescribir la métrica con `--reference-mode`.
+El foco se define como el paso de tiempo con el mínimo global de la métrica elegida. Podés sobrescribir la métrica con `--reference-mode`.
 
 ### 3. Reconstrucción de Superficies
-El "cuerpo de lente efectivo" se genera haciendo lofting de la envolvente del haz en el slice focal  
-y dándole espesor realista (más grueso en el centro, más delgado en los bordes — como una lente magnética real).
+El "cuerpo de lente efectivo" se genera haciendo lofting de la envolvente del haz en el slice focal y dándole espesor realista (más grueso en el centro, más delgado en los bordes — como una lente magnética real).
 
 ### 4. Reproducibilidad Bit-Exacta
-Este fue el desafío de ingeniería más grande. El post-proceso original de Windows usaba PowerShell,  
-que producía **cuerpos de lente geométricamente diferentes** que la referencia en Python.
+Este fue el desafío de ingeniería más grande. El post-proceso original de Windows usaba PowerShell, que producía **cuerpos de lente geométricamente diferentes** que la referencia en Python.
 
-Solución: Reescribí cada línea del post-proceso en C++20 puro,  
-usando exactamente las mismas operaciones de punto flotante, orden de iteración y formato de salida (`%.12e`).  
-Resultado: `diff` entre salidas de Linux y Windows muestra cero diferencias.
+Solución: Reescribí cada línea del post-proceso en C++20 puro, usando exactamente las mismas operaciones de punto flotante, orden de iteración y formato de salida (`%.12e`). Resultado: `diff` entre salidas de Linux y Windows muestra cero diferencias.
 
 ---
 
@@ -594,8 +544,7 @@ Licencia MIT — **con una cláusula extra importante**:
 **El uso comercial o cualquier forma de monetización está prohibido** sin permiso expreso por escrito de José Labarca.  
 Esto aplica a BeamLabStudio y a toda obra derivada, incluyendo MuonSimViewer.
 
-Lo construí para la ciencia y para el proyecto de terapia con muones del CCTVal.  
-Mantengámoslo así.
+Lo construí para la ciencia y para el proyecto de terapia con muones del CCTVal. Mantengámoslo así.
 
 El texto completo de la licencia está en el archivo `LICENSE` del repositorio.
 
@@ -618,8 +567,11 @@ Me encantaría saber que esta cosa que construí durante el infierno de exámene
 
 — José
 
-                           
 ================================================================================
 
-Este README fue hechi el 27 de abril de 2026 a las 00:19 (hora de Chile).
-Versión: 2.0 
+                              FIN DEL ARCHIVO
+                              
+================================================================================
+
+Este README fue hecho el 27 de abril de 2026.
+Versión: 4.0
