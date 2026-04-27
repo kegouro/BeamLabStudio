@@ -618,9 +618,8 @@ Me encantaría saber que esta cosa que construí durante el infierno de exámene
 
 — José
 
-                              FIN DEL ARCHIVO
+                           
 ================================================================================
 
 Este README fue hechi el 27 de abril de 2026 a las 00:19 (hora de Chile).
 Versión: 2.0 
-```
