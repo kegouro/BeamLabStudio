@@ -2,12 +2,12 @@
                     BEAMLABSTUDIO v0.1.0 - README BILINGÜE 
           Plataforma Científica para Análisis de Haces y Reconstrucción Óptica
                             Por José Labarca
+                 Jlabarca@usm.cl/Joselabarcabaeza11@hotmail.com
                           "Por y para el mundo"
 
-
+                              
 ================================================================================
-                              ENGLISH VERSION
-================================================================================
+ENGLISH VERSION
 
 # BeamLabStudio v0.1.0
 
@@ -310,9 +310,10 @@ I would love to know that this thing I built during exam hell is actually helpin
 
 — José
 
-================================================================================
+
                            VERSIÓN EN ESPAÑOL
 ================================================================================
+VERSIÓN EN ESPAÑOL
 
 # BeamLabStudio v0.1.0
 
@@ -615,7 +616,6 @@ Me encantaría saber que esta cosa que construí durante el infierno de exámene
 
 — José
 
-================================================================================
                               FIN DEL ARCHIVO
 ================================================================================
 
