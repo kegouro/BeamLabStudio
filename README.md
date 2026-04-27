@@ -314,6 +314,7 @@ I would love to know that this thing I built during exam hell is actually helpin
 
                            VERSIÓN EN ESPAÑOL
 ================================================================================
+
 VERSIÓN EN ESPAÑOL
 
 # BeamLabStudio v0.1.0
