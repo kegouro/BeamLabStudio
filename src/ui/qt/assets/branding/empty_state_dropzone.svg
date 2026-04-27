@@ -1,0 +1,9 @@
+<svg width="720" height="420" viewBox="0 0 720 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="420" rx="28" fill="#0B111A"/>
+  <rect x="42" y="42" width="636" height="336" rx="24" fill="#111827" stroke="#2A3A55"/>
+  <path d="M158 210 C242 144 319 139 360 210 C401 139 478 144 562 210 C478 276 401 281 360 210 C319 281 242 276 158 210Z" stroke="#60A5FA" stroke-width="5" stroke-linejoin="round" opacity="0.72"/>
+  <path d="M170 210H550" stroke="#67E8F9" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="360" cy="210" r="9" fill="#FBBF24"/>
+  <text x="360" y="306" text-anchor="middle" fill="#EAF2FF" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="25" font-weight="700">Drop a ROOT, COMSOL or CSV file</text>
+  <text x="360" y="340" text-anchor="middle" fill="#AAB8CF" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="17">BeamLabStudio will analyze, reconstruct and visualize the run</text>
+</svg>

@@ -1,0 +1,8 @@
+<svg width="320" height="96" viewBox="0 0 320 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="1" y="1" width="318" height="94" rx="18" fill="#1F1A0B" stroke="#FBBF24" stroke-opacity="0.45" stroke-width="2"/>
+  <path d="M48 22L76 74H20L48 22Z" fill="#FBBF24" fill-opacity="0.18" stroke="#FBBF24" stroke-width="3"/>
+  <path d="M48 38V55" stroke="#FBBF24" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="48" cy="64" r="3" fill="#FBBF24"/>
+  <text x="96" y="42" fill="#EAF2FF" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">Quality warning</text>
+  <text x="96" y="66" fill="#AAB8CF" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15">Review importer and beam statistics</text>
+</svg>

@@ -1,0 +1,1721 @@
+#include "ui/qt/StatsDashboardWidget.h"
+
+#include <QBrush>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QGraphicsEllipseItem>
+#include <QGraphicsLineItem>
+#include <QGraphicsScene>
+#include <QGraphicsTextItem>
+#include <QGraphicsView>
+#include <QGridLayout>
+#include <QGroupBox>
+#include <QHBoxLayout>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QLabel>
+#include <QFileDialog>
+#include <QLayoutItem>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPageLayout>
+#include <QPageSize>
+#include <QMarginsF>
+#include <QPen>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QFrame>
+#include <QPdfWriter>
+#include <QResizeEvent>
+#include <QSignalBlocker>
+#include <QSpinBox>
+#include <QTextStream>
+#include <QTextDocument>
+#include <QVBoxLayout>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <iterator>
+#include <limits>
+#include <utility>
+#include <vector>
+
+namespace beamlab::ui {
+namespace {
+
+QStringList splitCsvLine(const QString& line)
+{
+    QStringList result;
+    QString token;
+    bool in_quotes = false;
+
+    for (const auto ch : line) {
+        if (ch == '"') {
+            in_quotes = !in_quotes;
+            continue;
+        }
+
+        if (ch == ',' && !in_quotes) {
+            result.push_back(token.trimmed());
+            token.clear();
+            continue;
+        }
+
+        token.push_back(ch);
+    }
+
+    result.push_back(token.trimmed());
+    return result;
+}
+
+int findColumn(const QStringList& header, const QStringList& candidates)
+{
+    for (const auto& wanted : candidates) {
+        for (int i = 0; i < header.size(); ++i) {
+            if (header[i].trimmed().compare(wanted, Qt::CaseInsensitive) == 0) {
+                return i;
+            }
+        }
+    }
+
+    return -1;
+}
+
+QColor bg()
+{
+    return QColor(13, 16, 22);
+}
+
+QColor grid()
+{
+    return QColor(44, 54, 72);
+}
+
+QColor text()
+{
+    return QColor(232, 238, 248);
+}
+
+QColor curve()
+{
+    return QColor(130, 210, 255);
+}
+
+QColor seriesColor(const QString& title)
+{
+    if (title.contains("area", Qt::CaseInsensitive)) {
+        return QColor(255, 190, 120);
+    }
+
+    if (title.contains("Points", Qt::CaseInsensitive)) {
+        return QColor(132, 232, 172);
+    }
+
+    return curve();
+}
+
+QString formatTick(const double value)
+{
+    const double abs_value = std::abs(value);
+
+    if ((abs_value > 0.0 && abs_value < 1.0e-3) || abs_value >= 1.0e4) {
+        return QString::number(value, 'e', 2);
+    }
+
+    return QString::number(value, 'g', 4);
+}
+
+QString formatIntegerTick(const double value)
+{
+    return QString::number(static_cast<qint64>(std::llround(value)));
+}
+
+double maxAbsValue(const QVector<double>& values)
+{
+    double max_value = 0.0;
+
+    for (const double value : values) {
+        if (std::isfinite(value)) {
+            max_value = std::max(max_value, std::abs(value));
+        }
+    }
+
+    return max_value;
+}
+
+bool isNearlyConstant(const QVector<double>& values)
+{
+    if (values.size() < 2) {
+        return false;
+    }
+
+    const auto [min_it, max_it] =
+        std::minmax_element(values.begin(), values.end());
+
+    const double span = *max_it - *min_it;
+    const double scale = std::max(1.0, std::max(std::abs(*min_it), std::abs(*max_it)));
+
+    return span <= std::max(1.0, scale * 0.005);
+}
+
+QString csvValue(QString value)
+{
+    value.replace('"', "\"\"");
+
+    if (value.contains(',') || value.contains('"') || value.contains('\n')) {
+        return "\"" + value + "\"";
+    }
+
+    return value;
+}
+
+QString csvNumber(const double value, const int precision = 12)
+{
+    if (!std::isfinite(value)) {
+        return "n/a";
+    }
+
+    return QString::number(value, 'g', precision);
+}
+
+bool renderScenePng(QGraphicsScene* scene,
+                    const QString& path,
+                    const QSize& size,
+                    QString* error)
+{
+    if (scene == nullptr || scene->sceneRect().isEmpty()) {
+        if (error != nullptr) {
+            *error = "No chart scene is available.";
+        }
+        return false;
+    }
+
+    QImage image(size, QImage::Format_ARGB32_Premultiplied);
+    image.fill(bg());
+
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    scene->render(
+        &painter,
+        QRectF(QPointF(0.0, 0.0), QSizeF(size)),
+        scene->sceneRect(),
+        Qt::KeepAspectRatio
+    );
+    painter.end();
+
+    if (!image.save(path, "PNG")) {
+        if (error != nullptr) {
+            *error = "Could not write PNG: " + path;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+} // namespace
+
+StatsDashboardWidget::StatsDashboardWidget(QWidget* parent)
+    : QWidget(parent)
+{
+    auto* layout = new QVBoxLayout(this);
+
+    auto* chart_grid = new QGridLayout();
+    chart_grid->setSpacing(6);
+    chart_grid->setContentsMargins(6, 6, 6, 6);
+
+    focus_scene_ = new QGraphicsScene(this);
+    envelope_area_scene_ = new QGraphicsScene(this);
+    point_count_scene_ = new QGraphicsScene(this);
+    radial_histogram_scene_ = new QGraphicsScene(this);
+
+    focus_view_ = new QGraphicsView(focus_scene_, this);
+    envelope_area_view_ = new QGraphicsView(envelope_area_scene_, this);
+    point_count_view_ = new QGraphicsView(point_count_scene_, this);
+    radial_histogram_view_ = new QGraphicsView(radial_histogram_scene_, this);
+
+    for (auto* view : {
+             focus_view_,
+             envelope_area_view_,
+             point_count_view_,
+             radial_histogram_view_
+         }) {
+        view->setMinimumHeight(240);
+        view->setRenderHint(QPainter::Antialiasing, true);
+        view->setBackgroundBrush(bg());
+        view->setFrameShape(QFrame::StyledPanel);
+        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    }
+
+    chart_grid->addWidget(focus_view_, 0, 0);
+    chart_grid->addWidget(envelope_area_view_, 0, 1);
+    chart_grid->addWidget(point_count_view_, 1, 0);
+    chart_grid->addWidget(radial_histogram_view_, 1, 1);
+
+    report_preview_ = new QPlainTextEdit(this);
+    report_preview_->setReadOnly(true);
+    report_preview_->setMaximumHeight(220);
+
+    auto* inspector_box = new QGroupBox("Beam radius inspector", this);
+    auto* inspector_layout = new QVBoxLayout(inspector_box);
+    auto* inspector_header = new QHBoxLayout();
+
+    radius_position_label_ = new QLabel("No radius profile loaded", inspector_box);
+    radius_position_label_->setStyleSheet(
+        "color: #E8EEF8; font-weight: 700;"
+    );
+
+    radius_offset_spin_ = new QSpinBox(inspector_box);
+    radius_offset_spin_->setRange(0, 0);
+    radius_offset_spin_->setPrefix("Offset ");
+    radius_offset_spin_->setEnabled(false);
+
+    export_radius_csv_button_ =
+        new QPushButton("Export beam radius CSV", inspector_box);
+    export_radius_csv_button_->setEnabled(false);
+
+    inspector_header->addWidget(radius_position_label_, 1);
+    inspector_header->addWidget(radius_offset_spin_);
+    inspector_header->addWidget(export_radius_csv_button_);
+
+    radius_detail_grid_ = new QGridLayout();
+    radius_detail_grid_->setColumnStretch(1, 1);
+    radius_detail_grid_->setColumnStretch(3, 1);
+    radius_detail_grid_->setHorizontalSpacing(14);
+    radius_detail_grid_->setVerticalSpacing(6);
+
+    inspector_layout->addLayout(inspector_header);
+    inspector_layout->addLayout(radius_detail_grid_);
+
+    connect(
+        radius_offset_spin_,
+        static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged),
+        this,
+        [this](int) {
+            refreshBeamRadiusInspector();
+        }
+    );
+
+    connect(export_radius_csv_button_, &QPushButton::clicked, this, [this]() {
+        exportBeamRadiusCsvFromDialog();
+    });
+
+    layout->setSpacing(6);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->addLayout(chart_grid, 1);
+    layout->addWidget(inspector_box, 0);
+    layout->addWidget(report_preview_, 0);
+}
+
+void StatsDashboardWidget::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    fitCharts();
+}
+
+void StatsDashboardWidget::fitCharts()
+{
+    for (auto [view, scene] : {
+             std::pair<QGraphicsView*, QGraphicsScene*>{focus_view_, focus_scene_},
+             std::pair<QGraphicsView*, QGraphicsScene*>{envelope_area_view_, envelope_area_scene_},
+             std::pair<QGraphicsView*, QGraphicsScene*>{point_count_view_, point_count_scene_},
+             std::pair<QGraphicsView*, QGraphicsScene*>{radial_histogram_view_, radial_histogram_scene_}
+         }) {
+        if (view == nullptr || scene == nullptr || scene->sceneRect().isEmpty()) {
+            continue;
+        }
+
+        view->resetTransform();
+        view->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+    }
+}
+
+bool StatsDashboardWidget::exportChartsPng(const QString& directory,
+                                           QString* error) const
+{
+    QDir dir(directory);
+
+    if (!dir.exists() && !dir.mkpath(".")) {
+        if (error != nullptr) {
+            *error = "Could not create chart export directory: " + directory;
+        }
+        return false;
+    }
+
+    const QSize image_size(1800, 980);
+
+    return renderScenePng(
+               focus_scene_,
+               dir.filePath("statistics_focus_rms_radius.png"),
+               image_size,
+               error
+           ) &&
+           renderScenePng(
+               envelope_area_scene_,
+               dir.filePath("statistics_envelope_area.png"),
+               image_size,
+               error
+           ) &&
+           renderScenePng(
+               point_count_scene_,
+               dir.filePath("statistics_points_per_slice.png"),
+               image_size,
+               error
+           ) &&
+           renderScenePng(
+               radial_histogram_scene_,
+               dir.filePath("statistics_radial_distribution.png"),
+               image_size,
+               error
+           );
+}
+
+bool StatsDashboardWidget::exportBeamRadiusSpreadsheet(const QString& path,
+                                                       QString* error) const
+{
+    if (beam_radius_rows_.isEmpty()) {
+        if (error != nullptr) {
+            *error = "No beam radius profile is loaded.";
+        }
+        return false;
+    }
+
+    QFileInfo info(path);
+
+    if (!QDir().mkpath(info.absolutePath())) {
+        if (error != nullptr) {
+            *error = "Could not create directory: " + info.absolutePath();
+        }
+        return false;
+    }
+
+    QFile file(path);
+
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        if (error != nullptr) {
+            *error = "Could not write CSV: " + path;
+        }
+        return false;
+    }
+
+    QString output;
+    const QStringList header{
+        "index",
+        "relative_to_minimum",
+        "position_label",
+        "reference_value_m",
+        "axial_position_m",
+        "radius_rms_mm",
+        "minimum_radius_rms_mm",
+        "delta_from_minimum_mm",
+        "delta_from_minimum_percent",
+        "point_count",
+        "input_points",
+        "boundary_points",
+        "area_m2",
+        "perimeter_m",
+        "area_equivalent_radius_mm",
+        "perimeter_equivalent_radius_mm",
+        "method_name",
+        "valid",
+        "is_focus"
+    };
+    output += header.join(',') + "\n";
+
+    for (const BeamRadiusRow& row : beam_radius_rows_) {
+        const QStringList values{
+            row.index,
+            QString::number(row.relative_to_minimum),
+            row.position_label,
+            row.reference_value_m,
+            row.axial_position_m,
+            row.radius_rms_mm,
+            row.minimum_radius_rms_mm,
+            row.delta_from_minimum_mm,
+            row.delta_from_minimum_percent,
+            row.point_count,
+            row.input_points,
+            row.boundary_points,
+            row.area_m2,
+            row.perimeter_m,
+            row.area_equivalent_radius_mm,
+            row.perimeter_equivalent_radius_mm,
+            row.method_name,
+            row.valid,
+            row.is_focus
+        };
+
+        QStringList escaped;
+        escaped.reserve(values.size());
+
+        for (const QString& value : values) {
+            escaped.push_back(csvValue(value));
+        }
+
+        output += escaped.join(',') + "\n";
+    }
+
+    file.write(output.toUtf8());
+    file.close();
+    return true;
+}
+
+bool StatsDashboardWidget::exportStatisticsPdf(const QString& path,
+                                               QString* error) const
+{
+    if (focus_scene_ == nullptr ||
+        envelope_area_scene_ == nullptr ||
+        point_count_scene_ == nullptr ||
+        radial_histogram_scene_ == nullptr) {
+        if (error != nullptr) {
+            *error = "Statistics charts are not loaded.";
+        }
+        return false;
+    }
+
+    QFileInfo info(path);
+
+    if (!QDir().mkpath(info.absolutePath())) {
+        if (error != nullptr) {
+            *error = "Could not create PDF directory: " + info.absolutePath();
+        }
+        return false;
+    }
+
+    QPdfWriter pdf(path);
+    pdf.setResolution(150);
+    pdf.setPageSize(QPageSize(QPageSize::A4));
+    pdf.setPageMargins(QMarginsF(14.0, 14.0, 14.0, 14.0), QPageLayout::Millimeter);
+
+    QPainter painter(&pdf);
+
+    if (!painter.isActive()) {
+        if (error != nullptr) {
+            *error = "Could not create PDF: " + path;
+        }
+        return false;
+    }
+
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+
+    const QRectF page_rect = pdf.pageLayout().paintRectPixels(pdf.resolution());
+    const double left = page_rect.left();
+    const double top = page_rect.top();
+    const double width = page_rect.width();
+    const double height = page_rect.height();
+
+    QFont title_font = painter.font();
+    title_font.setPointSize(17);
+    title_font.setBold(true);
+
+    QFont section_font = painter.font();
+    section_font.setPointSize(11);
+    section_font.setBold(true);
+
+    QFont attribution_font = painter.font();
+    attribution_font.setPointSize(9);
+    attribution_font.setBold(false);
+
+    painter.fillRect(page_rect, Qt::white);
+    painter.setPen(QColor(24, 30, 42));
+    painter.setFont(title_font);
+    painter.drawText(
+        QRectF(left, top, width, 44.0),
+        Qt::AlignLeft | Qt::AlignVCenter,
+        "BeamLabStudio Statistics Summary"
+    );
+    painter.setFont(attribution_font);
+    painter.setPen(QColor(92, 108, 135));
+    painter.drawText(
+        QRectF(left, top + 42.0, width, 22.0),
+        Qt::AlignLeft | Qt::AlignVCenter,
+        "Created by José Labarca"
+    );
+
+    const auto render_chart = [&](QGraphicsScene* scene,
+                                  const QString& title,
+                                  const QRectF& target) {
+        painter.setPen(QColor(48, 58, 78));
+        painter.setFont(section_font);
+        painter.drawText(
+            QRectF(target.left(), target.top() - 24.0, target.width(), 20.0),
+            Qt::AlignLeft | Qt::AlignVCenter,
+            title
+        );
+
+        painter.save();
+        scene->render(&painter, target, scene->sceneRect(), Qt::KeepAspectRatio);
+        painter.restore();
+    };
+
+    const double chart_gap = 34.0;
+    const double chart_w = (width - chart_gap) / 2.0;
+    const double chart_h = (height - 118.0 - chart_gap) / 2.0;
+    const double chart_top = top + 84.0;
+
+    render_chart(
+        focus_scene_,
+        "Beam RMS radius",
+        QRectF(left, chart_top, chart_w, chart_h)
+    );
+    render_chart(
+        envelope_area_scene_,
+        "Focal envelope proxy area",
+        QRectF(left + chart_w + chart_gap, chart_top, chart_w, chart_h)
+    );
+    render_chart(
+        point_count_scene_,
+        "Points per slice",
+        QRectF(left, chart_top + chart_h + chart_gap, chart_w, chart_h)
+    );
+    render_chart(
+        radial_histogram_scene_,
+        "Radial distribution",
+        QRectF(left + chart_w + chart_gap, chart_top + chart_h + chart_gap, chart_w, chart_h)
+    );
+
+    pdf.newPage();
+    painter.fillRect(page_rect, Qt::white);
+
+    QTextDocument document;
+    QFont report_font("monospace");
+    report_font.setPointSize(9);
+    document.setDefaultFont(report_font);
+    document.setPlainText(
+        report_preview_ != nullptr
+            ? report_preview_->toPlainText()
+            : QString("No report text loaded.")
+    );
+    document.setTextWidth(width);
+
+    const double content_h = height - 20.0;
+    double offset = 0.0;
+    bool first_report_page = true;
+
+    while (offset < document.size().height()) {
+        if (!first_report_page) {
+            pdf.newPage();
+            painter.fillRect(page_rect, Qt::white);
+        }
+
+        painter.save();
+        painter.translate(left, top - offset);
+        painter.setClipRect(QRectF(0.0, offset, width, content_h));
+        document.drawContents(&painter);
+        painter.restore();
+
+        offset += content_h;
+        first_report_page = false;
+    }
+
+    painter.end();
+
+    return true;
+}
+
+QString StatsDashboardWidget::resolveRunDirFromManifest(const QString& manifest_path) const
+{
+    QFileInfo manifest_info(manifest_path);
+    QDir dir = manifest_info.dir();
+
+    // manifest está en outputs/<run>/visualization/
+    dir.cdUp();
+
+    return dir.absolutePath();
+}
+
+QString StatsDashboardWidget::readFilePreview(const QString& path, const int max_lines) const
+{
+    QFile file(path);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return QString("Missing file: %1\n").arg(path);
+    }
+
+    QTextStream stream(&file);
+    QString out;
+    int count = 0;
+
+    while (!stream.atEnd() && count < max_lines) {
+        out += stream.readLine() + "\n";
+        ++count;
+    }
+
+    if (!stream.atEnd()) {
+        out += "...\n";
+    }
+
+    return out;
+}
+
+StatsDashboardWidget::Series StatsDashboardWidget::readCsvSeries(
+    const QString& path,
+    const QStringList& possible_x_columns,
+    const QStringList& possible_y_columns,
+    const QString& title,
+    const QString& fallback_x_label,
+    const QString& fallback_y_label) const
+{
+    Series series;
+    series.title = title;
+    series.x_label = fallback_x_label;
+    series.y_label = fallback_y_label;
+
+    QFile file(path);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return series;
+    }
+
+    QTextStream stream(&file);
+
+    QStringList header;
+    int x_col = -1;
+    int y_col = -1;
+
+    while (!stream.atEnd()) {
+        const auto line = stream.readLine();
+
+        if (line.trimmed().isEmpty() || line.startsWith("#")) {
+            continue;
+        }
+
+        if (header.isEmpty()) {
+            header = splitCsvLine(line);
+            x_col = findColumn(header, possible_x_columns);
+            y_col = findColumn(header, possible_y_columns);
+
+            if (x_col >= 0) {
+                series.x_label = header[x_col];
+            }
+
+            if (y_col >= 0) {
+                series.y_label = header[y_col];
+            }
+
+            continue;
+        }
+
+        const auto cols = splitCsvLine(line);
+
+        if (x_col < 0 || y_col < 0 ||
+            x_col >= cols.size() || y_col >= cols.size()) {
+            continue;
+        }
+
+        bool ok_x = false;
+        bool ok_y = false;
+
+        const double x = cols[x_col].toDouble(&ok_x);
+        const double y = cols[y_col].toDouble(&ok_y);
+
+        if (ok_x && ok_y && std::isfinite(x) && std::isfinite(y)) {
+            series.x.push_back(x);
+            series.y.push_back(y);
+        }
+    }
+
+    return series;
+}
+
+void StatsDashboardWidget::drawSeries(QGraphicsScene* scene, const Series& series)
+{
+    scene->clear();
+    scene->setBackgroundBrush(bg());
+
+    constexpr double w = 760.0;
+    constexpr double h = 310.0;
+    constexpr double left = 96.0;
+    constexpr double right = 34.0;
+    constexpr double top = 54.0;
+    constexpr double bottom = 66.0;
+
+    scene->setSceneRect(0.0, 0.0, w, h);
+
+    auto* title = scene->addText(series.title);
+    title->setDefaultTextColor(text());
+    title->setScale(1.08);
+    title->setPos(left, 12);
+
+    if (series.x.isEmpty() || series.y.isEmpty()) {
+        auto* empty = scene->addText("No data available");
+        empty->setDefaultTextColor(QColor(255, 190, 130));
+        empty->setPos(left, 70);
+        return;
+    }
+
+    const auto [min_x_it, max_x_it] =
+        std::minmax_element(series.x.begin(), series.x.end());
+
+    const auto [min_y_it, max_y_it] =
+        std::minmax_element(series.y.begin(), series.y.end());
+
+    double min_x = *min_x_it;
+    double max_x = *max_x_it;
+    double min_y = *min_y_it;
+    double max_y = *max_y_it;
+    const double raw_min_y = min_y;
+    const double raw_max_y = max_y;
+    const bool constant_y = series.integer_y_ticks && isNearlyConstant(series.y);
+    QString note_text = series.note;
+
+    if (constant_y && note_text.isEmpty()) {
+        note_text = QString("Particle count is nearly constant: %1")
+            .arg(std::llround(0.5 * (raw_min_y + raw_max_y)));
+    }
+
+    if (std::abs(max_x - min_x) < 1.0e-30) {
+        max_x = min_x + 1.0;
+    }
+
+    if (series.integer_y_ticks) {
+        int min_tick = static_cast<int>(std::floor(raw_min_y));
+        int max_tick = static_cast<int>(std::ceil(raw_max_y));
+
+        if (constant_y) {
+            const int center_tick =
+                static_cast<int>(std::llround(0.5 * (raw_min_y + raw_max_y)));
+            min_tick = center_tick - 2;
+            max_tick = center_tick + 2;
+        }
+
+        if (min_tick == max_tick) {
+            --min_tick;
+            ++max_tick;
+        }
+
+        const int span = std::max(1, max_tick - min_tick);
+        const int step = std::max(1, static_cast<int>(std::ceil(static_cast<double>(span) / 5.0)));
+        max_tick = min_tick + step * 5;
+        min_y = static_cast<double>(min_tick);
+        max_y = static_cast<double>(max_tick);
+    } else if (std::abs(max_y - min_y) < 1.0e-30) {
+        max_y = min_y + 1.0;
+    }
+
+    const double plot_w = w - left - right;
+    const double plot_h = h - top - bottom;
+
+    const auto mapPoint = [&](const double x, const double y) {
+        const double sx = left + (x - min_x) * plot_w / (max_x - min_x);
+        const double sy = top + plot_h - (y - min_y) * plot_h / (max_y - min_y);
+        return QPointF(sx, sy);
+    };
+
+    QPen grid_pen(grid());
+    grid_pen.setWidthF(0.8);
+    QPen frame_pen(QColor(92, 108, 135));
+    frame_pen.setWidthF(1.0);
+
+    scene->addRect(
+        left,
+        top,
+        plot_w,
+        plot_h,
+        frame_pen,
+        QBrush(QColor(16, 21, 30))
+    );
+
+    for (int i = 0; i <= 5; ++i) {
+        const double gx = left + plot_w * static_cast<double>(i) / 5.0;
+        const double gy = top + plot_h * static_cast<double>(i) / 5.0;
+
+        scene->addLine(gx, top, gx, top + plot_h, grid_pen);
+        scene->addLine(left, gy, left + plot_w, gy, grid_pen);
+
+        const double x_value = min_x + (max_x - min_x) * static_cast<double>(i) / 5.0;
+        const double y_value = max_y - (max_y - min_y) * static_cast<double>(i) / 5.0;
+
+        auto* x_tick = scene->addText(formatTick(x_value));
+        x_tick->setDefaultTextColor(QColor(170, 184, 205));
+        x_tick->setScale(0.72);
+        x_tick->setPos(gx - 28.0, top + plot_h + 8.0);
+
+        auto* y_tick = scene->addText(
+            series.integer_y_ticks ? formatIntegerTick(y_value) : formatTick(y_value)
+        );
+        y_tick->setDefaultTextColor(QColor(170, 184, 205));
+        y_tick->setScale(0.72);
+        y_tick->setPos(18.0, gy - 9.0);
+    }
+
+    QPen axis_pen(QColor(120, 135, 160));
+    axis_pen.setWidthF(1.2);
+
+    scene->addLine(left, top + plot_h, left + plot_w, top + plot_h, axis_pen);
+    scene->addLine(left, top, left, top + plot_h, axis_pen);
+
+    const QColor main_color = seriesColor(series.title);
+    QColor fill_color = main_color;
+    fill_color.setAlpha(36);
+
+    QPen curve_pen(main_color);
+    curve_pen.setWidthF(2.0);
+
+    QPainterPath curve_path;
+    curve_path.moveTo(mapPoint(series.x[0], series.y[0]));
+
+    for (qsizetype i = 1; i < series.x.size(); ++i) {
+        curve_path.lineTo(mapPoint(series.x[i], series.y[i]));
+    }
+
+    QPainterPath fill_path = curve_path;
+    fill_path.lineTo(mapPoint(series.x.back(), min_y));
+    fill_path.lineTo(mapPoint(series.x.front(), min_y));
+    fill_path.closeSubpath();
+    scene->addPath(fill_path, QPen(Qt::NoPen), QBrush(fill_color));
+    scene->addPath(curve_path, curve_pen);
+
+    const qsizetype point_stride = std::max<qsizetype>(1, series.x.size() / 160);
+
+    for (qsizetype i = 0; i < series.x.size(); i += point_stride) {
+        const QPointF point = mapPoint(series.x[i], series.y[i]);
+        scene->addEllipse(
+            point.x() - 1.6,
+            point.y() - 1.6,
+            3.2,
+            3.2,
+            QPen(QColor(225, 245, 255, 190)),
+            QBrush(main_color.lighter(112))
+        );
+    }
+
+    const auto min_it = std::min_element(series.y.begin(), series.y.end());
+
+    if (series.highlight_minimum && min_it != series.y.end()) {
+        const qsizetype min_index =
+            static_cast<qsizetype>(std::distance(series.y.begin(), min_it));
+        const QPointF min_point = mapPoint(series.x[min_index], series.y[min_index]);
+
+        scene->addEllipse(
+            min_point.x() - 4.0,
+            min_point.y() - 4.0,
+            8.0,
+            8.0,
+            QPen(QColor(255, 224, 150), 1.5),
+            QBrush(QColor(255, 224, 150, 170))
+        );
+    }
+
+    auto* x_label = scene->addText(series.x_label);
+    x_label->setDefaultTextColor(text());
+    x_label->setScale(0.86);
+    x_label->setPos(left + plot_w - 170, h - 38);
+
+    auto* y_label = scene->addText(series.y_label);
+    y_label->setDefaultTextColor(text());
+    y_label->setScale(0.86);
+    y_label->setPos(14, top - 28);
+
+    if (!note_text.isEmpty()) {
+        auto* note = scene->addText(note_text);
+        note->setDefaultTextColor(QColor(205, 224, 245));
+        note->setScale(0.82);
+        note->setPos(left + plot_w - 290.0, top + 10.0);
+    }
+
+    auto* minmax = scene->addText(
+        QString("min=%1   max=%2")
+            .arg(series.integer_y_ticks ? formatIntegerTick(raw_min_y) : formatTick(raw_min_y))
+            .arg(series.integer_y_ticks ? formatIntegerTick(raw_max_y) : formatTick(raw_max_y))
+    );
+
+    minmax->setDefaultTextColor(QColor(180, 195, 215));
+    minmax->setScale(0.84);
+    minmax->setPos(left, h - 36);
+
+    const QRectF complete_bounds =
+        scene->itemsBoundingRect().adjusted(-16.0, -16.0, 16.0, 16.0);
+
+    if (complete_bounds.isValid() && !complete_bounds.isEmpty()) {
+        scene->setSceneRect(complete_bounds);
+    }
+}
+
+QVector<double> StatsDashboardWidget::readFocalSliceRadii(const QString& path) const
+{
+    QVector<double> radii_mm;
+    QFile file(path);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return radii_mm;
+    }
+
+    QTextStream stream(&file);
+    QStringList header;
+    int u_col = -1;
+    int v_col = -1;
+
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine();
+
+        if (line.trimmed().isEmpty() || line.startsWith("#")) {
+            continue;
+        }
+
+        if (header.isEmpty()) {
+            header = splitCsvLine(line);
+            u_col = findColumn(header, {"u_m"});
+            v_col = findColumn(header, {"v_m"});
+            continue;
+        }
+
+        const QStringList cols = splitCsvLine(line);
+
+        if (u_col < 0 || v_col < 0 ||
+            u_col >= cols.size() || v_col >= cols.size()) {
+            continue;
+        }
+
+        bool ok_u = false;
+        bool ok_v = false;
+        const double u = cols[u_col].toDouble(&ok_u);
+        const double v = cols[v_col].toDouble(&ok_v);
+
+        if (ok_u && ok_v && std::isfinite(u) && std::isfinite(v)) {
+            radii_mm.push_back(std::hypot(u, v) * 1000.0);
+        }
+    }
+
+    return radii_mm;
+}
+
+QVector<StatsDashboardWidget::BeamRadiusRow>
+StatsDashboardWidget::readBeamRadiusProfile(const QString& focus_curve_path,
+                                            const QString& envelope_summary_path) const
+{
+    struct EnvelopeRow {
+        int row_number{0};
+        QString slice_index{"n/a"};
+        QString reference_value_m{"n/a"};
+        QString axial_position_m{"n/a"};
+        QString input_points{"n/a"};
+        QString boundary_points{"n/a"};
+        QString area_m2{"n/a"};
+        QString perimeter_m{"n/a"};
+        QString method_name{"n/a"};
+        QString valid{"n/a"};
+        double reference_numeric{0.0};
+        double area_numeric{0.0};
+        double perimeter_numeric{0.0};
+        bool has_reference{false};
+        bool has_area{false};
+        bool has_perimeter{false};
+    };
+
+    QVector<EnvelopeRow> envelope_rows;
+
+    {
+        QFile file(envelope_summary_path);
+
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QTextStream stream(&file);
+            QStringList header;
+            int row_number = 0;
+            int slice_col = -1;
+            int ref_col = -1;
+            int axial_col = -1;
+            int input_col = -1;
+            int boundary_col = -1;
+            int area_col = -1;
+            int perimeter_col = -1;
+            int method_col = -1;
+            int valid_col = -1;
+
+            while (!stream.atEnd()) {
+                const QString line = stream.readLine();
+
+                if (line.trimmed().isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+
+                if (header.isEmpty()) {
+                    header = splitCsvLine(line);
+                    slice_col = findColumn(header, {"slice_index", "index"});
+                    ref_col = findColumn(header, {"reference_value_m", "reference_axial_m"});
+                    axial_col = findColumn(header, {"axial_position_m", "reference_axial_m"});
+                    input_col = findColumn(header, {"input_points", "points", "point_count"});
+                    boundary_col = findColumn(header, {"boundary_points"});
+                    area_col = findColumn(header, {"area_m2"});
+                    perimeter_col = findColumn(header, {"perimeter_m"});
+                    method_col = findColumn(header, {"method_name", "method"});
+                    valid_col = findColumn(header, {"valid"});
+                    continue;
+                }
+
+                const QStringList cols = splitCsvLine(line);
+                EnvelopeRow row;
+                row.row_number = row_number;
+
+                const auto cell = [&](const int column) {
+                    return column >= 0 && column < cols.size()
+                        ? cols[column].trimmed()
+                        : QString("n/a");
+                };
+
+                row.slice_index = cell(slice_col);
+                row.reference_value_m = cell(ref_col);
+                row.axial_position_m = cell(axial_col);
+                row.input_points = cell(input_col);
+                row.boundary_points = cell(boundary_col);
+                row.area_m2 = cell(area_col);
+                row.perimeter_m = cell(perimeter_col);
+                row.method_name = cell(method_col);
+                row.valid = cell(valid_col);
+
+                bool ok_ref = false;
+                bool ok_area = false;
+                bool ok_perimeter = false;
+                row.reference_numeric = row.reference_value_m.toDouble(&ok_ref);
+                row.area_numeric = row.area_m2.toDouble(&ok_area);
+                row.perimeter_numeric = row.perimeter_m.toDouble(&ok_perimeter);
+                row.has_reference = ok_ref && std::isfinite(row.reference_numeric);
+                row.has_area = ok_area && std::isfinite(row.area_numeric);
+                row.has_perimeter = ok_perimeter && std::isfinite(row.perimeter_numeric);
+
+                envelope_rows.push_back(row);
+                ++row_number;
+            }
+        }
+    }
+
+    QVector<BeamRadiusRow> rows;
+    QFile focus_file(focus_curve_path);
+
+    if (!focus_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return rows;
+    }
+
+    QTextStream stream(&focus_file);
+    QStringList header;
+    int index_col = -1;
+    int ref_col = -1;
+    int metric_col = -1;
+    int point_col = -1;
+    int focus_col = -1;
+    int source_row = 0;
+
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine();
+
+        if (line.trimmed().isEmpty() || line.startsWith("#")) {
+            continue;
+        }
+
+        if (header.isEmpty()) {
+            header = splitCsvLine(line);
+            index_col = findColumn(header, {"index", "slice_index"});
+            ref_col = findColumn(header, {"reference_value_m", "reference_axial_m", "axial_position_m"});
+            metric_col = findColumn(header, {"metric_value_m", "r_rms_m", "transverse_r_rms_m"});
+            point_col = findColumn(header, {"point_count", "points", "input_points"});
+            focus_col = findColumn(header, {"is_focus"});
+            continue;
+        }
+
+        const QStringList cols = splitCsvLine(line);
+        const auto cell = [&](const int column) {
+            return column >= 0 && column < cols.size()
+                ? cols[column].trimmed()
+                : QString("n/a");
+        };
+
+        BeamRadiusRow row;
+        row.source_row = source_row;
+        row.index = cell(index_col);
+        row.reference_value_m = cell(ref_col);
+        row.point_count = cell(point_col);
+        row.is_focus = cell(focus_col);
+        row.focus = row.is_focus.compare("true", Qt::CaseInsensitive) == 0 ||
+            row.is_focus == "1" ||
+            row.is_focus.compare("yes", Qt::CaseInsensitive) == 0;
+        row.is_focus = row.focus ? "true" : "false";
+
+        bool ok_ref = false;
+        bool ok_metric = false;
+        const double reference = row.reference_value_m.toDouble(&ok_ref);
+        const double metric_m = cell(metric_col).toDouble(&ok_metric);
+
+        row.has_reference = ok_ref && std::isfinite(reference);
+        row.reference_numeric = row.has_reference ? reference : 0.0;
+        row.has_radius = ok_metric && std::isfinite(metric_m);
+        row.radius_mm_numeric = row.has_radius ? metric_m * 1000.0 : 0.0;
+        row.radius_rms_mm = row.has_radius ? csvNumber(row.radius_mm_numeric) : "n/a";
+
+        rows.push_back(row);
+        ++source_row;
+    }
+
+    if (rows.isEmpty()) {
+        return rows;
+    }
+
+    int focus_row = -1;
+
+    for (int i = 0; i < rows.size(); ++i) {
+        if (rows[i].focus && rows[i].has_radius) {
+            focus_row = i;
+            break;
+        }
+    }
+
+    if (focus_row < 0) {
+        double best_radius = std::numeric_limits<double>::infinity();
+
+        for (int i = 0; i < rows.size(); ++i) {
+            if (rows[i].has_radius && rows[i].radius_mm_numeric < best_radius) {
+                best_radius = rows[i].radius_mm_numeric;
+                focus_row = i;
+            }
+        }
+    }
+
+    if (focus_row < 0) {
+        return {};
+    }
+
+    const double minimum_radius = rows[focus_row].radius_mm_numeric;
+
+    const auto matchEnvelope = [&](const BeamRadiusRow& row) -> const EnvelopeRow* {
+        const EnvelopeRow* best = nullptr;
+        double best_delta = std::numeric_limits<double>::infinity();
+
+        if (row.has_reference) {
+            for (const auto& envelope : envelope_rows) {
+                if (!envelope.has_reference) {
+                    continue;
+                }
+
+                const double delta =
+                    std::abs(envelope.reference_numeric - row.reference_numeric);
+                const double tolerance =
+                    std::max(1.0e-9, std::abs(row.reference_numeric) * 1.0e-8);
+
+                if (delta <= tolerance && delta < best_delta) {
+                    best = &envelope;
+                    best_delta = delta;
+                }
+            }
+
+            if (best != nullptr) {
+                return best;
+            }
+        }
+
+        bool ok_index = false;
+        const int row_index = row.index.toInt(&ok_index);
+
+        for (const auto& envelope : envelope_rows) {
+            bool ok_slice = false;
+            const int slice_index = envelope.slice_index.toInt(&ok_slice);
+
+            if (ok_index && ok_slice && slice_index == row_index) {
+                return &envelope;
+            }
+        }
+
+        if (row.source_row >= 0 && row.source_row < envelope_rows.size()) {
+            return &envelope_rows[row.source_row];
+        }
+
+        return nullptr;
+    };
+
+    constexpr double pi = 3.141592653589793238462643383279502884;
+
+    for (int i = 0; i < rows.size(); ++i) {
+        BeamRadiusRow& row = rows[i];
+        row.relative_to_minimum = i - focus_row;
+
+        if (row.relative_to_minimum == 0) {
+            row.position_label = "Minimum radius";
+            row.state = "minimum";
+        } else if (row.relative_to_minimum < 0) {
+            row.position_label =
+                QString("%1 slices before minimum").arg(-row.relative_to_minimum);
+            row.state = "before";
+        } else {
+            row.position_label =
+                QString("%1 slices after minimum").arg(row.relative_to_minimum);
+            row.state = "after";
+        }
+
+        row.minimum_radius_rms_mm = csvNumber(minimum_radius);
+
+        if (row.has_radius) {
+            const double delta = row.radius_mm_numeric - minimum_radius;
+            row.delta_from_minimum_mm = csvNumber(delta);
+            row.delta_from_minimum_percent =
+                std::abs(minimum_radius) > 1.0e-15
+                    ? csvNumber(delta / minimum_radius * 100.0)
+                    : "n/a";
+        }
+
+        if (const EnvelopeRow* envelope = matchEnvelope(row)) {
+            row.axial_position_m = envelope->axial_position_m;
+            row.input_points = envelope->input_points;
+            row.boundary_points = envelope->boundary_points;
+            row.area_m2 = envelope->area_m2;
+            row.perimeter_m = envelope->perimeter_m;
+            row.method_name = envelope->method_name;
+            row.valid = envelope->valid;
+
+            if (envelope->has_area && envelope->area_numeric >= 0.0) {
+                row.area_equivalent_radius_mm =
+                    csvNumber(std::sqrt(envelope->area_numeric / pi) * 1000.0);
+            }
+
+            if (envelope->has_perimeter && envelope->perimeter_numeric >= 0.0) {
+                row.perimeter_equivalent_radius_mm =
+                    csvNumber(envelope->perimeter_numeric / (2.0 * pi) * 1000.0);
+            }
+        }
+    }
+
+    return rows;
+}
+
+void StatsDashboardWidget::drawRadialHistogram(QGraphicsScene* scene,
+                                               const QVector<double>& radii_mm)
+{
+    scene->clear();
+    scene->setBackgroundBrush(bg());
+
+    constexpr double w = 760.0;
+    constexpr double h = 310.0;
+    constexpr double left = 96.0;
+    constexpr double right = 34.0;
+    constexpr double top = 54.0;
+    constexpr double bottom = 66.0;
+    constexpr int n_bins = 40;
+
+    scene->setSceneRect(0.0, 0.0, w, h);
+
+    auto* title = scene->addText("Radial distribution at focal slice");
+    title->setDefaultTextColor(text());
+    title->setScale(1.08);
+    title->setPos(left, 12);
+
+    if (radii_mm.isEmpty()) {
+        auto* empty = scene->addText("No focal slice data available");
+        empty->setDefaultTextColor(QColor(255, 190, 130));
+        empty->setPos(left, 70);
+        return;
+    }
+
+    QVector<double> sorted = radii_mm;
+    std::sort(sorted.begin(), sorted.end());
+
+    const qsizetype percentile_index =
+        std::clamp<qsizetype>(
+            static_cast<qsizetype>(std::floor(0.99 * static_cast<double>(sorted.size() - 1))),
+            0,
+            sorted.size() - 1
+        );
+    double max_r = sorted[percentile_index];
+
+    if (max_r <= 0.0 || !std::isfinite(max_r)) {
+        max_r = sorted.back();
+    }
+
+    if (max_r <= 0.0 || !std::isfinite(max_r)) {
+        max_r = 1.0;
+    }
+
+    std::vector<int> bins(static_cast<std::size_t>(n_bins), 0);
+    double sum_sq = 0.0;
+
+    for (const double r : radii_mm) {
+        if (!std::isfinite(r) || r < 0.0) {
+            continue;
+        }
+
+        const int bin =
+            std::clamp(
+                static_cast<int>(std::floor(r / max_r * static_cast<double>(n_bins))),
+                0,
+                n_bins - 1
+            );
+        bins[static_cast<std::size_t>(bin)] += 1;
+        sum_sq += r * r;
+    }
+
+    const int max_count =
+        std::max(1, *std::max_element(bins.begin(), bins.end()));
+    const double r_rms =
+        std::sqrt(sum_sq / static_cast<double>(std::max<qsizetype>(1, radii_mm.size())));
+
+    const double plot_w = w - left - right;
+    const double plot_h = h - top - bottom;
+
+    QPen grid_pen(grid());
+    grid_pen.setWidthF(0.8);
+    QPen frame_pen(QColor(92, 108, 135));
+    frame_pen.setWidthF(1.0);
+
+    scene->addRect(
+        left,
+        top,
+        plot_w,
+        plot_h,
+        frame_pen,
+        QBrush(QColor(16, 21, 30))
+    );
+
+    for (int i = 0; i <= 5; ++i) {
+        const double gx = left + plot_w * static_cast<double>(i) / 5.0;
+        const double gy = top + plot_h * static_cast<double>(i) / 5.0;
+
+        scene->addLine(gx, top, gx, top + plot_h, grid_pen);
+        scene->addLine(left, gy, left + plot_w, gy, grid_pen);
+
+        auto* x_tick = scene->addText(
+            formatTick(max_r * static_cast<double>(i) / 5.0)
+        );
+        x_tick->setDefaultTextColor(QColor(170, 184, 205));
+        x_tick->setScale(0.72);
+        x_tick->setPos(gx - 24.0, top + plot_h + 8.0);
+
+        auto* y_tick = scene->addText(
+            QString::number(static_cast<qint64>(
+                std::llround(
+                    static_cast<double>(max_count) *
+                    static_cast<double>(5 - i) / 5.0
+                )
+            ))
+        );
+        y_tick->setDefaultTextColor(QColor(170, 184, 205));
+        y_tick->setScale(0.72);
+        y_tick->setPos(24.0, gy - 9.0);
+    }
+
+    QPen axis_pen(QColor(120, 135, 160));
+    axis_pen.setWidthF(1.2);
+    scene->addLine(left, top + plot_h, left + plot_w, top + plot_h, axis_pen);
+    scene->addLine(left, top, left, top + plot_h, axis_pen);
+
+    const double bar_gap = 1.6;
+    const double bar_w = plot_w / static_cast<double>(n_bins) - bar_gap;
+    const QColor bar_color(130, 210, 255, 180);
+
+    for (int i = 0; i < n_bins; ++i) {
+        const int count = bins[static_cast<std::size_t>(i)];
+        const double bar_h =
+            plot_h * static_cast<double>(count) / static_cast<double>(max_count);
+        const double x = left + plot_w * static_cast<double>(i) / static_cast<double>(n_bins);
+        const double y = top + plot_h - bar_h;
+
+        scene->addRect(
+            x,
+            y,
+            std::max(1.0, bar_w),
+            bar_h,
+            QPen(QColor(170, 225, 255, 170)),
+            QBrush(bar_color)
+        );
+    }
+
+    const double rms_x = left + std::clamp(r_rms / max_r, 0.0, 1.0) * plot_w;
+    QPen rms_pen(QColor(255, 190, 120));
+    rms_pen.setWidthF(2.0);
+    scene->addLine(rms_x, top, rms_x, top + plot_h, rms_pen);
+
+    auto* rms_label = scene->addText("RMS");
+    rms_label->setDefaultTextColor(QColor(255, 190, 120));
+    rms_label->setScale(0.82);
+    rms_label->setPos(rms_x + 5.0, top + 8.0);
+
+    auto* x_label = scene->addText("Radius [mm]");
+    x_label->setDefaultTextColor(text());
+    x_label->setScale(0.86);
+    x_label->setPos(left + plot_w - 128.0, h - 38.0);
+
+    auto* y_label = scene->addText("Particles");
+    y_label->setDefaultTextColor(text());
+    y_label->setScale(0.86);
+    y_label->setPos(14.0, top - 28.0);
+
+    auto* stats = scene->addText(
+        QString("n=%1   r_rms=%2 mm")
+            .arg(radii_mm.size())
+            .arg(formatTick(r_rms))
+    );
+    stats->setDefaultTextColor(QColor(180, 195, 215));
+    stats->setScale(0.84);
+    stats->setPos(left, h - 36.0);
+
+    const QRectF complete_bounds =
+        scene->itemsBoundingRect().adjusted(-16.0, -16.0, 16.0, 16.0);
+
+    if (complete_bounds.isValid() && !complete_bounds.isEmpty()) {
+        scene->setSceneRect(complete_bounds);
+    }
+}
+
+void StatsDashboardWidget::refreshBeamRadiusInspector()
+{
+    if (radius_detail_grid_ == nullptr ||
+        radius_position_label_ == nullptr ||
+        radius_offset_spin_ == nullptr) {
+        return;
+    }
+
+    while (QLayoutItem* item = radius_detail_grid_->takeAt(0)) {
+        if (QWidget* widget = item->widget()) {
+            widget->deleteLater();
+        }
+
+        delete item;
+    }
+
+    if (beam_radius_rows_.isEmpty() || beam_radius_focus_row_ < 0) {
+        radius_position_label_->setText("No radius profile loaded");
+        radius_offset_spin_->setEnabled(false);
+
+        if (export_radius_csv_button_ != nullptr) {
+            export_radius_csv_button_->setEnabled(false);
+        }
+
+        return;
+    }
+
+    const int target_row =
+        beam_radius_focus_row_ + radius_offset_spin_->value();
+
+    if (target_row < 0 || target_row >= beam_radius_rows_.size()) {
+        radius_position_label_->setText("Selected radius row is out of range");
+        return;
+    }
+
+    const BeamRadiusRow& row = beam_radius_rows_[target_row];
+    radius_position_label_->setText(row.position_label);
+
+    const std::array<std::pair<QString, QString>, 18> details{{
+        {"Index", row.index},
+        {"State", row.state},
+        {"Offset", QString::number(row.relative_to_minimum)},
+        {"Reference value [m]", row.reference_value_m},
+        {"Axial position [m]", row.axial_position_m},
+        {"Radius RMS [mm]", row.radius_rms_mm},
+        {"Minimum radius [mm]", row.minimum_radius_rms_mm},
+        {"Delta from minimum [mm]", row.delta_from_minimum_mm},
+        {"Delta from minimum [%]", row.delta_from_minimum_percent},
+        {"Point count", row.point_count},
+        {"Input points", row.input_points},
+        {"Boundary points", row.boundary_points},
+        {"Area [m2]", row.area_m2},
+        {"Perimeter [m]", row.perimeter_m},
+        {"Area equivalent radius [mm]", row.area_equivalent_radius_mm},
+        {"Perimeter equivalent radius [mm]", row.perimeter_equivalent_radius_mm},
+        {"Method", row.method_name},
+        {"Valid", row.valid}
+    }};
+
+    for (std::size_t i = 0; i < details.size(); ++i) {
+        const int grid_row = static_cast<int>(i / 2);
+        const int grid_col = static_cast<int>((i % 2) * 2);
+
+        auto* key = new QLabel(details[i].first, this);
+        key->setStyleSheet("color: #6B7A94;");
+
+        auto* value = new QLabel(details[i].second.isEmpty() ? "n/a" : details[i].second, this);
+        value->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        value->setStyleSheet("color: #E8EEF8; font-weight: 600;");
+
+        radius_detail_grid_->addWidget(key, grid_row, grid_col);
+        radius_detail_grid_->addWidget(value, grid_row, grid_col + 1);
+    }
+}
+
+void StatsDashboardWidget::exportBeamRadiusCsvFromDialog()
+{
+    const QString default_path =
+        QDir::home().filePath("beam_radius_profile.csv");
+    const QString path = QFileDialog::getSaveFileName(
+        this,
+        "Export beam radius CSV",
+        default_path,
+        "CSV files (*.csv);;All files (*)"
+    );
+
+    if (path.isEmpty()) {
+        return;
+    }
+
+    QString error;
+
+    if (!exportBeamRadiusSpreadsheet(path, &error)) {
+        report_preview_->appendPlainText("\nBeam radius CSV export failed: " + error);
+        return;
+    }
+
+    report_preview_->appendPlainText("\nBeam radius CSV exported to: " + path);
+}
+
+void StatsDashboardWidget::loadRunFromManifest(const QString& manifest_path)
+{
+    const QString run_dir = resolveRunDirFromManifest(manifest_path);
+
+    const QString focus_curve = QDir(run_dir).filePath("tables/focus_curve.csv");
+    const QString envelope_summary = QDir(run_dir).filePath("tables/envelope_summary.csv");
+    QString focal_slice = QDir(run_dir).filePath("visualization/focal_slice_points.csv");
+
+    QFile manifest_file(manifest_path);
+
+    if (manifest_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QJsonParseError parse_error{};
+        const QJsonDocument document =
+            QJsonDocument::fromJson(manifest_file.readAll(), &parse_error);
+
+        if (parse_error.error == QJsonParseError::NoError && document.isObject()) {
+            const QString manifest_focal_slice =
+                document.object()
+                    .value("files")
+                    .toObject()
+                    .value("focal_slice_points_csv")
+                    .toString();
+
+            if (!manifest_focal_slice.isEmpty()) {
+                const QFileInfo focal_info(manifest_focal_slice);
+
+                if (focal_info.isAbsolute()) {
+                    focal_slice = focal_info.absoluteFilePath();
+                } else {
+                    focal_slice = QDir(run_dir).filePath(manifest_focal_slice);
+                }
+            }
+        }
+    }
+
+    auto focus_series = readCsvSeries(
+        focus_curve,
+        {"reference_value_m", "frame_time_s", "reference_time_s", "reference_axial_m", "axial_position_m", "index"},
+        {"metric_value_m", "r_rms_m", "transverse_r_rms_m", "minimum_transverse_rms_radius_m"},
+        "Beam RMS radius",
+        "Axial position z [m]",
+        "Beam RMS radius [mm]"
+    );
+
+    focus_series.x_label = "Axial position z [m]";
+    focus_series.y_label = "Beam RMS radius [mm]";
+
+    for (double& value : focus_series.y) {
+        value *= 1000.0;
+    }
+
+    auto area_series = readCsvSeries(
+        envelope_summary,
+        {"reference_value_m", "reference_axial_m", "axial_position_m", "slice_index", "frame_time_s", "reference_time_s"},
+        {"area_m2"},
+        "Focal envelope proxy area",
+        "Axial position z [m]",
+        "Envelope area [mm²]"
+    );
+
+    area_series.x_label = "Axial position z [m]";
+    const double max_area_m2 = maxAbsValue(area_series.y);
+    double area_scale = 1.0e6;
+    QString area_label = "Envelope area [mm²]";
+
+    if (max_area_m2 >= 1.0) {
+        area_scale = 1.0;
+        area_label = "Envelope area [m²]";
+    } else if (max_area_m2 >= 1.0e-2) {
+        area_scale = 1.0e4;
+        area_label = "Envelope area [cm²]";
+    }
+
+    area_series.y_label = area_label;
+
+    for (double& value : area_series.y) {
+        value *= area_scale;
+    }
+
+    auto points_series = readCsvSeries(
+        envelope_summary,
+        {"reference_value_m", "reference_axial_m", "axial_position_m", "slice_index", "frame_time_s", "reference_time_s"},
+        {"input_points", "points", "point_count", "input_point_count"},
+        "Points per slice",
+        "Axial position z [m]",
+        "Particles per slice"
+    );
+
+    points_series.x_label = "Axial position z [m]";
+    points_series.y_label = "Particles per slice";
+    points_series.integer_y_ticks = true;
+    points_series.highlight_minimum = false;
+
+    if (isNearlyConstant(points_series.y) && !points_series.y.isEmpty()) {
+        const auto [min_it, max_it] =
+            std::minmax_element(points_series.y.begin(), points_series.y.end());
+        points_series.note =
+            std::llround(*min_it) == std::llround(*max_it)
+                ? QString("Particle count is constant across slices: %1")
+                    .arg(std::llround(*min_it))
+                : QString("Particle count is nearly constant: %1-%2")
+                    .arg(std::llround(*min_it))
+                    .arg(std::llround(*max_it));
+    }
+
+    drawSeries(focus_scene_, focus_series);
+    drawSeries(envelope_area_scene_, area_series);
+    drawSeries(point_count_scene_, points_series);
+    drawRadialHistogram(radial_histogram_scene_, readFocalSliceRadii(focal_slice));
+
+    beam_radius_rows_ = readBeamRadiusProfile(focus_curve, envelope_summary);
+    beam_radius_focus_row_ = -1;
+
+    for (int i = 0; i < beam_radius_rows_.size(); ++i) {
+        if (beam_radius_rows_[i].relative_to_minimum == 0) {
+            beam_radius_focus_row_ = i;
+            break;
+        }
+    }
+
+    if (radius_offset_spin_ != nullptr) {
+        const QSignalBlocker blocker(radius_offset_spin_);
+
+        if (beam_radius_focus_row_ >= 0) {
+            radius_offset_spin_->setRange(
+                -beam_radius_focus_row_,
+                static_cast<int>(beam_radius_rows_.size()) - beam_radius_focus_row_ - 1
+            );
+            radius_offset_spin_->setValue(0);
+            radius_offset_spin_->setEnabled(true);
+        } else {
+            radius_offset_spin_->setRange(0, 0);
+            radius_offset_spin_->setValue(0);
+            radius_offset_spin_->setEnabled(false);
+        }
+    }
+
+    if (export_radius_csv_button_ != nullptr) {
+        export_radius_csv_button_->setEnabled(!beam_radius_rows_.isEmpty());
+    }
+
+    refreshBeamRadiusInspector();
+
+    QString report;
+    report += "Run directory\n";
+    report += "-------------\n";
+    report += run_dir + "\n\n";
+
+    report += "Analysis summary\n";
+    report += "----------------\n";
+    report += readFilePreview(QDir(run_dir).filePath("reports/analysis_summary.md"), 80);
+    report += "\n";
+
+    report += "Quality report\n";
+    report += "--------------\n";
+    report += readFilePreview(QDir(run_dir).filePath("reports/quality_report.md"), 80);
+
+    report_preview_->setPlainText(report);
+    fitCharts();
+}
+
+} // namespace beamlab::ui

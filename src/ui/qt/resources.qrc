@@ -1,0 +1,13 @@
+<RCC>
+    <qresource prefix="/branding">
+        <file alias="beamlabstudio_logo_horizontal.svg">assets/branding/beamlabstudio_logo_horizontal.svg</file>
+        <file alias="beamlabstudio_icon.svg">assets/branding/beamlabstudio_icon.svg</file>
+        <file alias="empty_state_dropzone.svg">assets/branding/empty_state_dropzone.svg</file>
+        <file alias="status_warning.svg">assets/branding/status_warning.svg</file>
+        <file alias="status_success.svg">assets/branding/status_success.svg</file>
+        <file alias="palette.json">assets/branding/palette.json</file>
+    </qresource>
+    <qresource prefix="/styles">
+        <file alias="beamlabstudio.qss">styles/beamlabstudio.qss</file>
+    </qresource>
+</RCC>

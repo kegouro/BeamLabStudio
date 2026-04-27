@@ -1,0 +1,4145 @@
+#include "ui/qt/MainWindow.h"
+#include "ui/qt/InteractiveGraphicsView.h"
+#include "ui/qt/ObjViewerWidget.h"
+#include "ui/qt/RunDashboardWidget.h"
+#include "ui/qt/Scene3DWidget.h"
+#include "ui/qt/StatsDashboardWidget.h"
+
+#include <QAction>
+#include <QBrush>
+#include <QCloseEvent>
+#include <QColorDialog>
+#include <QComboBox>
+#include <QApplication>
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDragEnterEvent>
+#include <QGroupBox>
+#include <QCheckBox>
+#include <QDir>
+#include <QDirIterator>
+#include <QDropEvent>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QFrame>
+#include <QGraphicsEllipseItem>
+#include <QGridLayout>
+#include <QGraphicsPathItem>
+#include <QGraphicsScene>
+#include <QGraphicsView>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QLabel>
+#include <QMenu>
+#include <QMenuBar>
+#include <QMessageBox>
+#include <QMimeData>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPen>
+#include <QPixmap>
+#include <QPlainTextEdit>
+#include <QProcess>
+#include <QPushButton>
+#include <QRegularExpression>
+#include <QScrollArea>
+#include <QSettings>
+#include <QSizePolicy>
+#include <QSignalBlocker>
+#include <QSlider>
+#include <QSpinBox>
+#include <QStandardPaths>
+#include <QStackedWidget>
+#include <QTableWidget>
+#include <QTableWidgetItem>
+#include <QTextStream>
+#include <QToolBar>
+#include <QTimer>
+#include <QUrl>
+#include <QVariant>
+#include <QVBoxLayout>
+#include <QWidget>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <fstream>
+#include <limits>
+#include <map>
+#include <vector>
+
+namespace beamlab::ui {
+namespace {
+
+struct PlotPoint {
+    double x{0.0};
+    double y{0.0};
+};
+
+struct AxisPresentation {
+    QString label{};
+    double scale{1.0};
+};
+
+QStringList splitCsvLine(const QString& line)
+{
+    QStringList result;
+    QString token;
+    bool in_quotes = false;
+
+    for (const auto ch : line) {
+        if (ch == '"') {
+            in_quotes = !in_quotes;
+            continue;
+        }
+
+        if (ch == ',' && !in_quotes) {
+            result.push_back(token.trimmed());
+            token.clear();
+            continue;
+        }
+
+        token.push_back(ch);
+    }
+
+    result.push_back(token.trimmed());
+    return result;
+}
+
+int columnIndex(const QStringList& header, const QString& name)
+{
+    for (int i = 0; i < header.size(); ++i) {
+        if (header[i].trimmed() == name) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+QString fileStatus(const QString& path)
+{
+    const QFileInfo info(path);
+
+    if (!info.exists()) {
+        return "missing";
+    }
+
+    return QString("%1 bytes").arg(info.size());
+}
+
+QString formatPlotTick(const double value)
+{
+    const double abs_value = std::abs(value);
+
+    if ((abs_value > 0.0 && abs_value < 1.0e-3) || abs_value >= 1.0e4) {
+        return QString::number(value, 'e', 2);
+    }
+
+    return QString::number(value, 'g', 4);
+}
+
+AxisPresentation axisPresentationForColumn(const QString& column)
+{
+    if (column == "reference_value_m" ||
+        column == "reference_axial_m" ||
+        column == "axial_position_m") {
+        return {"Axial position z [m]", 1.0};
+    }
+
+    if (column == "metric_value_m" ||
+        column == "r_rms_m" ||
+        column == "transverse_r_rms_m") {
+        return {"Beam RMS radius [mm]", 1000.0};
+    }
+
+    if (column == "area_m2") {
+        return {"Envelope area [mm²]", 1.0e6};
+    }
+
+    if (column == "input_points" ||
+        column == "points" ||
+        column == "point_count" ||
+        column == "input_point_count") {
+        return {"Particles per slice", 1.0};
+    }
+
+    if (column == "z_m") {
+        return {"z [m]", 1.0};
+    }
+
+    if (column == "x_m") {
+        return {"x [m]", 1.0};
+    }
+
+    if (column == "u_m") {
+        return {"u [mm]", 1000.0};
+    }
+
+    if (column == "v_m") {
+        return {"v [mm]", 1000.0};
+    }
+
+    return {column, 1.0};
+}
+
+QDir projectRootDir()
+{
+    QDir current(QDir::currentPath());
+
+    if (QFileInfo::exists(current.filePath("scripts/run_beamlab_full.sh"))) {
+        return current;
+    }
+
+    QDir app_dir(QCoreApplication::applicationDirPath());
+
+    for (int depth = 0; depth < 8; ++depth) {
+        if (QFileInfo::exists(app_dir.filePath("scripts/run_beamlab_full.sh"))) {
+            return app_dir;
+        }
+
+        if (!app_dir.cdUp()) {
+            break;
+        }
+    }
+
+    return current;
+}
+
+QString sanitizeRunBase(QString text)
+{
+    text = text.simplified().replace(' ', '_');
+    text.replace(QRegularExpression("[^A-Za-z0-9_.-]"), "_");
+
+    if (text.isEmpty()) {
+        return "dataset";
+    }
+
+    return text;
+}
+
+QString withSuffix(QString path, const QString& suffix)
+{
+    if (path.isEmpty()) {
+        return path;
+    }
+
+    if (QFileInfo(path).suffix().compare(suffix, Qt::CaseInsensitive) == 0) {
+        return path;
+    }
+
+    return path + "." + suffix;
+}
+
+QString manifestFriendlyPath(const QString& absolute_path)
+{
+    const QDir root = projectRootDir();
+    const QString relative = root.relativeFilePath(absolute_path);
+
+    if (!relative.startsWith("..")) {
+        return relative;
+    }
+
+    return absolute_path;
+}
+
+QStringList defaultAnalysisArguments(const QFileInfo& input_info)
+{
+    QStringList args;
+
+    if (input_info.suffix().compare("root", Qt::CaseInsensitive) == 0) {
+        args << "--axis" << "z";
+        args << "--reference-mode" << "axial-bins";
+        args << "--binning" << "equal-count";
+        args << "--axial-bins" << "501";
+    }
+
+    args << "--window" << "5";
+    args << "--caustic-points" << "96";
+    args << "--lens-points" << "128";
+    args << "--lens-layers" << "16";
+    args << "--preview-trajectories" << "10000";
+    args << "--preview-samples-per-trajectory" << "200";
+    args << "--preview-slice-points" << "10000";
+
+    return args;
+}
+
+bool copyFileOverwrite(const QString& source,
+                       const QString& destination,
+                       QStringList* messages)
+{
+    if (source.isEmpty()) {
+        return false;
+    }
+
+    const QFileInfo source_info(source);
+
+    if (!source_info.exists() || !source_info.isFile()) {
+        if (messages != nullptr) {
+            messages->push_back("Missing: " + source);
+        }
+        return false;
+    }
+
+    QFileInfo destination_info(destination);
+
+    if (!QDir().mkpath(destination_info.absolutePath())) {
+        if (messages != nullptr) {
+            messages->push_back("Could not create: " + destination_info.absolutePath());
+        }
+        return false;
+    }
+
+    if (QFileInfo::exists(destination)) {
+        QFile::remove(destination);
+    }
+
+    if (!QFile::copy(source, destination)) {
+        if (messages != nullptr) {
+            messages->push_back("Could not copy: " + source);
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool copyDirectoryRecursive(const QString& source_dir,
+                            const QString& destination_dir,
+                            QStringList* messages)
+{
+    QDir source(source_dir);
+
+    if (!source.exists()) {
+        return false;
+    }
+
+    if (!QDir().mkpath(destination_dir)) {
+        if (messages != nullptr) {
+            messages->push_back("Could not create: " + destination_dir);
+        }
+        return false;
+    }
+
+    bool ok = true;
+    QDirIterator it(
+        source.absolutePath(),
+        QDir::Files,
+        QDirIterator::Subdirectories
+    );
+
+    while (it.hasNext()) {
+        const QString source_path = it.next();
+        const QString relative_path = source.relativeFilePath(source_path);
+        const QString destination_path = QDir(destination_dir).filePath(relative_path);
+        ok = copyFileOverwrite(source_path, destination_path, messages) && ok;
+    }
+
+    return ok;
+}
+
+bool copyFilesBySuffix(const QString& source_dir,
+                       const QString& destination_dir,
+                       const QStringList& suffixes,
+                       QStringList* messages)
+{
+    QDir source(source_dir);
+
+    if (!source.exists()) {
+        return false;
+    }
+
+    if (!QDir().mkpath(destination_dir)) {
+        if (messages != nullptr) {
+            messages->push_back("Could not create: " + destination_dir);
+        }
+        return false;
+    }
+
+    bool copied_any = false;
+    bool ok = true;
+    QDirIterator it(
+        source.absolutePath(),
+        QDir::Files,
+        QDirIterator::Subdirectories
+    );
+
+    while (it.hasNext()) {
+        const QString source_path = it.next();
+        const QString suffix = QFileInfo(source_path).suffix().toLower();
+
+        if (!suffixes.contains(suffix)) {
+            continue;
+        }
+
+        copied_any = true;
+        const QString relative_path = source.relativeFilePath(source_path);
+        const QString destination_path = QDir(destination_dir).filePath(relative_path);
+        ok = copyFileOverwrite(source_path, destination_path, messages) && ok;
+    }
+
+    return copied_any && ok;
+}
+
+bool exportScenePng(QGraphicsScene* scene,
+                    const QString& path,
+                    const QSize& image_size,
+                    QStringList* messages)
+{
+    if (scene == nullptr || scene->sceneRect().isEmpty()) {
+        if (messages != nullptr) {
+            messages->push_back("No scene to export: " + path);
+        }
+        return false;
+    }
+
+    QImage image(image_size, QImage::Format_ARGB32_Premultiplied);
+    image.fill(QColor(13, 16, 22));
+
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    scene->render(
+        &painter,
+        QRectF(QPointF(0.0, 0.0), QSizeF(image_size)),
+        scene->sceneRect(),
+        Qt::KeepAspectRatio
+    );
+    painter.end();
+
+    QFileInfo info(path);
+
+    if (!QDir().mkpath(info.absolutePath())) {
+        if (messages != nullptr) {
+            messages->push_back("Could not create: " + info.absolutePath());
+        }
+        return false;
+    }
+
+    if (!image.save(path, "PNG")) {
+        if (messages != nullptr) {
+            messages->push_back("Could not write PNG: " + path);
+        }
+        return false;
+    }
+
+    return true;
+}
+
+void fitSceneInView(QGraphicsView* view, QGraphicsScene* scene)
+{
+    if (view == nullptr || scene == nullptr) {
+        return;
+    }
+
+    QRectF bounds = scene->sceneRect();
+
+    if (!bounds.isValid() || bounds.isEmpty()) {
+        bounds = scene->itemsBoundingRect();
+
+        if (bounds.isValid() && !bounds.isEmpty()) {
+            const double pad_x = std::max(25.0, bounds.width() * 0.08);
+            const double pad_y = std::max(25.0, bounds.height() * 0.08);
+            bounds = bounds.adjusted(-pad_x, -pad_y, pad_x, pad_y);
+        }
+    }
+
+    if (!bounds.isValid() || bounds.isEmpty()) {
+        return;
+    }
+
+    scene->setSceneRect(bounds);
+    view->resetTransform();
+    view->fitInView(bounds, Qt::KeepAspectRatio);
+}
+
+} // namespace
+
+MainWindow::MainWindow(QWidget* parent)
+    : QMainWindow(parent)
+{
+    buildUi();
+    setAcceptDrops(true);
+}
+
+void MainWindow::showWelcomeScreen()
+{
+    if (central_stack_ != nullptr) {
+        central_stack_->setCurrentIndex(0);
+    }
+}
+
+void MainWindow::showWorkspace()
+{
+    if (central_stack_ != nullptr) {
+        central_stack_->setCurrentIndex(1);
+    }
+}
+
+void MainWindow::buildUi()
+{
+    // ── Global stylesheet ─────────────────────────────────────────────────────
+    setStyleSheet(R"QSS(
+/* ── Base ── */
+QMainWindow, QWidget {
+    background-color: #0D1016;
+    color: #E8EEF8;
+    font-family: "Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif;
+    font-size: 13px;
+}
+
+/* ── Top bar container ── */
+QWidget#topBar {
+    background-color: #111520;
+    border-bottom: 1px solid #1E2A3A;
+    padding: 0px;
+}
+
+/* ── Primary action button ── */
+QPushButton#primaryAction, QPushButton#PrimaryButton {
+    background-color: #2060C8;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 18px;
+    font-weight: 600;
+    font-size: 13px;
+    min-height: 32px;
+}
+QPushButton#primaryAction:hover, QPushButton#PrimaryButton:hover {
+    background-color: #2E74E0;
+}
+QPushButton#primaryAction:pressed, QPushButton#PrimaryButton:pressed {
+    background-color: #1A4FA8;
+}
+QPushButton#primaryAction:disabled, QPushButton#PrimaryButton:disabled {
+    background-color: #1A2235;
+    color: #4A5568;
+}
+
+/* ── Export all button ── */
+QPushButton#exportAll {
+    background-color: #1E3A2A;
+    color: #7CF2D2;
+    border: 1px solid #2A6045;
+    border-radius: 6px;
+    padding: 7px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    min-height: 32px;
+}
+QPushButton#exportAll:hover {
+    background-color: #254A34;
+    border-color: #3A8060;
+}
+QPushButton#exportAll:pressed {
+    background-color: #162B1E;
+}
+QPushButton#exportAll:disabled {
+    background-color: #111520;
+    color: #2A4035;
+    border-color: #1E2A3A;
+}
+
+/* ── Secondary export buttons ── */
+QPushButton#exportSecondary {
+    background-color: #151B26;
+    color: #A5B4CC;
+    border: 1px solid #2D3A4F;
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 12px;
+    min-height: 32px;
+}
+QPushButton#exportSecondary:hover {
+    background-color: #1C2538;
+    color: #E8EEF8;
+    border-color: #3D4E66;
+}
+QPushButton#exportSecondary:pressed {
+    background-color: #111520;
+}
+QPushButton#exportSecondary:disabled {
+    background-color: #0F1318;
+    color: #2D3A4F;
+    border-color: #1A2030;
+}
+
+/* ── Generic buttons (3D panel, camera) ── */
+QPushButton {
+    background-color: #151B26;
+    color: #C5D0E0;
+    border: 1px solid #2D3A4F;
+    border-radius: 5px;
+    padding: 5px 12px;
+    font-size: 12px;
+    min-height: 28px;
+}
+QPushButton:hover {
+    background-color: #1C2538;
+    color: #E8EEF8;
+    border-color: #3D4E66;
+}
+QPushButton:pressed {
+    background-color: #111520;
+    border-color: #2D3A4F;
+}
+QPushButton:disabled {
+    background-color: #0F1318;
+    color: #2A3448;
+    border-color: #1A2030;
+}
+
+/* ── Tab widget ── */
+QTabWidget::pane {
+    background-color: #0D1016;
+    border: none;
+    border-top: 2px solid #1A2235;
+}
+QTabBar {
+    background-color: #111520;
+}
+QTabBar::tab {
+    background-color: #111520;
+    color: #6B7A94;
+    border: none;
+    border-right: 1px solid #1A2235;
+    padding: 9px 16px;
+    font-size: 12px;
+    min-width: 80px;
+}
+QTabBar::tab:selected {
+    background-color: #0D1016;
+    color: #E8EEF8;
+    border-bottom: 2px solid #4A9EFF;
+}
+QTabBar::tab:hover:!selected {
+    background-color: #141C2C;
+    color: #C5D0E0;
+}
+QTabBar::tab:first {
+    border-left: none;
+}
+
+/* ── Group boxes (3D controls) ── */
+QGroupBox {
+    background-color: #111520;
+    border: 1px solid #1E2A3A;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 8px 10px 10px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #7CF2D2;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 8px;
+    left: 12px;
+    color: #7CF2D2;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+/* ── Check boxes ── */
+QCheckBox {
+    color: #C5D0E0;
+    spacing: 8px;
+    font-size: 13px;
+    padding: 3px 0;
+}
+QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 3px;
+    border: 1px solid #3D4E66;
+    background-color: #151B26;
+}
+QCheckBox::indicator:checked {
+    background-color: #2060C8;
+    border-color: #4A9EFF;
+    image: none;
+}
+QCheckBox::indicator:hover {
+    border-color: #4A9EFF;
+}
+QCheckBox:disabled {
+    color: #3A4A60;
+}
+QCheckBox::indicator:disabled {
+    border-color: #1E2A3A;
+    background-color: #0F1318;
+}
+
+/* ── Labels ── */
+QLabel {
+    color: #A5B4CC;
+    font-size: 12px;
+    background: transparent;
+}
+QLabel#sectionLabel {
+    color: #6B7A94;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 4px 0 2px 0;
+}
+
+/* ── Status label ── */
+QLabel#statusLabel {
+    color: #7CF2D2;
+    font-size: 12px;
+    padding-left: 10px;
+}
+
+/* ── ComboBox ── */
+QComboBox {
+    background-color: #151B26;
+    color: #C5D0E0;
+    border: 1px solid #2D3A4F;
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 12px;
+    min-height: 28px;
+}
+QComboBox:hover {
+    border-color: #3D4E66;
+    color: #E8EEF8;
+}
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+QComboBox QAbstractItemView {
+    background-color: #151B26;
+    color: #C5D0E0;
+    border: 1px solid #2D3A4F;
+    selection-background-color: #1C2C48;
+    selection-color: #E8EEF8;
+    outline: none;
+}
+
+/* ── Sliders ── */
+QSlider::groove:horizontal {
+    height: 4px;
+    background-color: #1E2A3A;
+    border-radius: 2px;
+}
+QSlider::handle:horizontal {
+    background-color: #4A9EFF;
+    border: none;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+QSlider::handle:horizontal:hover {
+    background-color: #6ABEFF;
+}
+QSlider::sub-page:horizontal {
+    background-color: #2060C8;
+    border-radius: 2px;
+}
+QSlider:disabled::groove:horizontal {
+    background-color: #151B26;
+}
+QSlider:disabled::handle:horizontal {
+    background-color: #2D3A4F;
+}
+
+/* ── SpinBox ── */
+QSpinBox {
+    background-color: #151B26;
+    color: #C5D0E0;
+    border: 1px solid #2D3A4F;
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 12px;
+    min-height: 28px;
+}
+QSpinBox:hover {
+    border-color: #3D4E66;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+    background-color: #1C2538;
+    border: none;
+    width: 18px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background-color: #253040;
+}
+
+/* ── Plain text (dashboard) ── */
+QPlainTextEdit {
+    background-color: #0A0E15;
+    color: #A5B4CC;
+    border: 1px solid #1E2A3A;
+    border-radius: 6px;
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+    font-size: 12px;
+    padding: 12px;
+    selection-background-color: #1C2C48;
+}
+
+/* ── Graphics views (2D plots) ── */
+QGraphicsView {
+    background-color: #0D1016;
+    border: 1px solid #1E2A3A;
+    border-radius: 6px;
+}
+
+/* ── Tables ── */
+QTableWidget {
+    background-color: #0A0E15;
+    alternate-background-color: #0F1520;
+    color: #C5D0E0;
+    border: 1px solid #1E2A3A;
+    border-radius: 6px;
+    gridline-color: #1A2235;
+    font-size: 12px;
+    selection-background-color: #1C2C48;
+    selection-color: #E8EEF8;
+}
+QHeaderView::section {
+    background-color: #111520;
+    color: #7CF2D2;
+    border: none;
+    border-right: 1px solid #1E2A3A;
+    border-bottom: 1px solid #1E2A3A;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+QHeaderView::section:first {
+    border-left: none;
+}
+QTableWidget::item {
+    padding: 4px 8px;
+    border: none;
+}
+
+/* ── Scrollbars ── */
+QScrollBar:vertical {
+    background-color: #0D1016;
+    width: 10px;
+    margin: 0;
+    border-left: 1px solid #1A2235;
+}
+QScrollBar::handle:vertical {
+    background-color: #2D3A4F;
+    border-radius: 4px;
+    min-height: 24px;
+    margin: 2px 2px;
+}
+QScrollBar::handle:vertical:hover {
+    background-color: #3D4E66;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+QScrollBar:horizontal {
+    background-color: #0D1016;
+    height: 10px;
+    border-top: 1px solid #1A2235;
+}
+QScrollBar::handle:horizontal {
+    background-color: #2D3A4F;
+    border-radius: 4px;
+    min-width: 24px;
+    margin: 2px 2px;
+}
+QScrollBar::handle:horizontal:hover {
+    background-color: #3D4E66;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
+}
+
+/* ── Tooltips ── */
+QToolTip {
+    background-color: #151B26;
+    color: #E8EEF8;
+    border: 1px solid #2D3A4F;
+    border-radius: 5px;
+    padding: 6px 10px;
+    font-size: 12px;
+    opacity: 240;
+}
+
+/* ── Separator frames ── */
+QFrame[frameShape="4"],
+QFrame[frameShape="5"] {
+    color: #1E2A3A;
+    background-color: #1E2A3A;
+}
+    )QSS");
+
+    // ── Window ───────────────────────────────────────────────────────────────
+    setWindowTitle("BeamLabStudio");
+
+    // BeamLabStudioResizableWindowPatch
+    setMinimumSize(1100, 720);
+    resize(1500, 920);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setWindowFlags(
+        windowFlags() |
+        Qt::WindowMinimizeButtonHint |
+        Qt::WindowMaximizeButtonHint |
+        Qt::WindowCloseButtonHint
+    );
+    resize(1400, 880);
+
+    central_stack_ = new QStackedWidget(this);
+
+    auto* welcome_page = new QWidget(central_stack_);
+    auto* welcome_layout = new QVBoxLayout(welcome_page);
+    welcome_layout->setAlignment(Qt::AlignCenter);
+    welcome_layout->setSpacing(16);
+
+    auto* welcome_logo = new QLabel(welcome_page);
+    welcome_logo->setAlignment(Qt::AlignCenter);
+    const QPixmap welcome_logo_pixmap(":/branding/beamlabstudio_logo_horizontal.svg");
+
+    if (!welcome_logo_pixmap.isNull()) {
+        welcome_logo->setPixmap(
+            welcome_logo_pixmap.scaled(
+                360,
+                96,
+                Qt::KeepAspectRatio,
+                Qt::SmoothTransformation
+            )
+        );
+    } else {
+        welcome_logo->setText("BeamLabStudio");
+        welcome_logo->setStyleSheet(
+            "color: #E8EEF8; font-size: 28px; font-weight: 700;"
+        );
+    }
+
+    auto* welcome_creator = new QLabel("Created by José Labarca", welcome_page);
+    welcome_creator->setAlignment(Qt::AlignCenter);
+    welcome_creator->setStyleSheet("color: #6B7A94; font-size: 11px;");
+
+    auto* welcome_subtitle =
+        new QLabel("Beam optics analysis and visualization", welcome_page);
+    welcome_subtitle->setAlignment(Qt::AlignCenter);
+    welcome_subtitle->setStyleSheet("color: #6B7A94; font-size: 13px;");
+
+    auto* welcome_dropzone = new QLabel(welcome_page);
+    welcome_dropzone->setAlignment(Qt::AlignCenter);
+    const QPixmap dropzone_pixmap(":/branding/empty_state_dropzone.svg");
+
+    if (!dropzone_pixmap.isNull()) {
+        welcome_dropzone->setPixmap(
+            dropzone_pixmap.scaled(
+                280,
+                170,
+                Qt::KeepAspectRatio,
+                Qt::SmoothTransformation
+            )
+        );
+    } else {
+        welcome_dropzone->setText("Drop a ROOT, COMSOL or CSV file");
+        welcome_dropzone->setStyleSheet("color: #AAB8CF;");
+    }
+
+    welcome_open_button_ =
+        new QPushButton("Open data file + analyze", welcome_page);
+    welcome_open_button_->setObjectName("PrimaryButton");
+    welcome_open_button_->setMinimumSize(220, 44);
+    connect(welcome_open_button_, &QPushButton::clicked, this, [this]() {
+        openDataFileAndRun();
+    });
+
+    welcome_layout->addWidget(welcome_logo);
+    welcome_layout->addWidget(welcome_creator);
+    welcome_layout->addWidget(welcome_subtitle);
+    welcome_layout->addSpacing(8);
+    welcome_layout->addWidget(welcome_dropzone, 0, Qt::AlignCenter);
+    welcome_layout->addSpacing(8);
+    welcome_layout->addWidget(welcome_open_button_, 0, Qt::AlignCenter);
+
+    auto* central = new QWidget(central_stack_);
+    auto* root_layout = new QVBoxLayout(central);
+    root_layout->setSpacing(0);
+    root_layout->setContentsMargins(0, 0, 0, 0);
+
+    // ── Top bar ───────────────────────────────────────────────────────────────
+    auto* top_bar_widget = new QWidget(central);
+    top_bar_widget->setObjectName("topBar");
+    top_bar_widget->setFixedHeight(56);
+    auto* top_bar = new QHBoxLayout(top_bar_widget);
+    top_bar->setContentsMargins(14, 10, 14, 10);
+    top_bar->setSpacing(6);
+
+    auto* top_bar_icon = new QLabel(top_bar_widget);
+    const QPixmap top_bar_icon_pixmap(":/branding/beamlabstudio_icon.svg");
+
+    if (!top_bar_icon_pixmap.isNull()) {
+        top_bar_icon->setPixmap(
+            top_bar_icon_pixmap.scaled(
+                24,
+                24,
+                Qt::KeepAspectRatio,
+                Qt::SmoothTransformation
+            )
+        );
+    }
+
+    auto* top_bar_title = new QLabel("BeamLabStudio", top_bar_widget);
+    top_bar_title->setObjectName("AppTitle");
+    top_bar_title->setStyleSheet(
+        "color: #E8EEF8; font-size: 15px; font-weight: 700;"
+    );
+
+    open_analyze_button_ = new QPushButton("Open + Analyze", top_bar_widget);
+    open_analyze_button_->setObjectName("PrimaryButton");
+    open_analyze_button_->setMinimumWidth(160);
+    connect(open_analyze_button_, &QPushButton::clicked, this, [this]() {
+        openDataFileAndRun();
+    });
+
+    // Vertical separator
+    auto* sep1 = new QFrame(top_bar_widget);
+    sep1->setFrameShape(QFrame::VLine);
+    sep1->setFrameShadow(QFrame::Plain);
+    sep1->setFixedWidth(1);
+
+    export_all_button_ = new QPushButton("↑  Export All", top_bar_widget);
+    export_all_button_->setObjectName("exportAll");
+    export_assets_button_ = new QPushButton("CSV + 3D", top_bar_widget);
+    export_assets_button_->setObjectName("exportSecondary");
+    export_png_button_ = new QPushButton("Plots PNG", top_bar_widget);
+    export_png_button_->setObjectName("exportSecondary");
+    export_mp4_button_ = new QPushButton("MP4", top_bar_widget);
+    export_mp4_button_->setObjectName("exportSecondary");
+    export_pdf_button_ = new QPushButton("PDF", top_bar_widget);
+    export_pdf_button_->setObjectName("exportSecondary");
+
+    export_all_button_->setToolTip("Export CSV files, 3D models, plots, video, and statistics PDF.");
+    export_assets_button_->setToolTip("Export CSV tables and OBJ 3D models.");
+    export_png_button_->setToolTip("Export the 2D and statistics plots as PNG images.");
+    export_mp4_button_->setToolTip("Export a trajectory playback video varying the lambda parameter.");
+    export_pdf_button_->setToolTip("Export an ordered PDF statistics report.");
+
+    connect(export_all_button_, &QPushButton::clicked, this, [this]() {
+        exportAllArtifacts();
+    });
+
+    connect(export_assets_button_, &QPushButton::clicked, this, [this]() {
+        exportCsvAndModels();
+    });
+
+    connect(export_png_button_, &QPushButton::clicked, this, [this]() {
+        exportPlotsPng();
+    });
+
+    connect(export_mp4_button_, &QPushButton::clicked, this, [this]() {
+        exportTrajectoryVideoMp4();
+    });
+
+    connect(export_pdf_button_, &QPushButton::clicked, this, [this]() {
+        exportStatisticsPdf();
+    });
+
+    status_label_ = new QLabel("No dataset loaded", top_bar_widget);
+    status_label_->setObjectName("statusLabel");
+
+    top_bar->addWidget(top_bar_icon);
+    top_bar->addWidget(top_bar_title);
+    top_bar->addSpacing(10);
+    top_bar->addWidget(status_label_, 1);
+    top_bar->addWidget(open_analyze_button_);
+    top_bar->addSpacing(6);
+    top_bar->addWidget(sep1);
+    top_bar->addSpacing(6);
+    top_bar->addWidget(export_all_button_);
+    top_bar->addSpacing(2);
+    top_bar->addWidget(export_assets_button_);
+    top_bar->addWidget(export_png_button_);
+    top_bar->addWidget(export_mp4_button_);
+    top_bar->addWidget(export_pdf_button_);
+
+    tabs_ = new QTabWidget(central);
+    tabs_->setDocumentMode(true);
+    tabs_->tabBar()->setExpanding(false);
+
+    dashboard_ = new RunDashboardWidget(tabs_);
+
+    statistics_dashboard_ = new StatsDashboardWidget(tabs_);
+
+    trajectory_scene_ = new QGraphicsScene(tabs_);
+    trajectory_view_ = new InteractiveGraphicsView(trajectory_scene_, tabs_);
+    trajectory_view_->setRenderHint(QPainter::Antialiasing, true);
+
+    focal_slice_scene_ = new QGraphicsScene(tabs_);
+    focal_slice_view_ = new InteractiveGraphicsView(focal_slice_scene_, tabs_);
+    focal_slice_view_->setRenderHint(QPainter::Antialiasing, true);
+
+    envelope_scene_ = new QGraphicsScene(tabs_);
+    envelope_view_ = new InteractiveGraphicsView(envelope_scene_, tabs_);
+    envelope_view_->setRenderHint(QPainter::Antialiasing, true);
+
+    for (auto* view : {trajectory_view_, focal_slice_view_, envelope_view_}) {
+        view->setBackgroundBrush(QColor(13, 16, 22));
+        view->setFrameShape(QFrame::NoFrame);
+        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    }
+
+    const auto make_plot_page =
+        [this](InteractiveGraphicsView* view) {
+            auto* page = new QWidget(tabs_);
+            auto* layout = new QVBoxLayout(page);
+            layout->setContentsMargins(8, 8, 8, 8);
+            layout->setSpacing(6);
+
+            auto* toolbar = new QHBoxLayout();
+            auto* reset = new QPushButton("Reset view", page);
+            reset->setObjectName("exportSecondary");
+            reset->setToolTip("Reset zoom and pan for this plot.");
+            toolbar->addWidget(reset);
+            toolbar->addStretch(1);
+            layout->addLayout(toolbar);
+            layout->addWidget(view, 1);
+
+            connect(reset, &QPushButton::clicked, view, [view]() {
+                view->resetView();
+            });
+
+            return page;
+        };
+
+    trajectory_plot_page_ = make_plot_page(trajectory_view_);
+    focal_slice_plot_page_ = make_plot_page(focal_slice_view_);
+    envelope_plot_page_ = make_plot_page(envelope_view_);
+
+    combined_scene_viewer_ = new Scene3DWidget(tabs_);
+
+    combined_page_ = new QWidget(tabs_);
+    auto* combined_layout = new QHBoxLayout(combined_page_);
+
+    auto* combined_controls_scroll = new QScrollArea(combined_page_);
+    combined_controls_scroll->setWidgetResizable(true);
+    combined_controls_scroll->setFrameShape(QFrame::NoFrame);
+    combined_controls_scroll->setMinimumWidth(290);
+    combined_controls_scroll->setMaximumWidth(330);
+
+    auto* combined_controls = new QGroupBox("3D Scene Controls", combined_controls_scroll);
+    combined_controls->setMinimumWidth(270);
+
+    auto* combined_controls_layout = new QVBoxLayout(combined_controls);
+
+    combined_trajectories_check_ = new QCheckBox("Individual trajectories", combined_controls);
+    combined_caustic_check_ =
+        new QCheckBox("Focal envelope proxy", combined_controls);
+    combined_lens_check_ = new QCheckBox("Effective lens", combined_controls);
+    combined_full_envelope_check_ =
+        new QCheckBox("Full beam envelope", combined_controls);
+    combined_beamline_check_ =
+        new QCheckBox("Physical beamline geometry", combined_controls);
+    show_axes_check_ = new QCheckBox("Show axes", combined_controls);
+    show_measure_guides_check_ = new QCheckBox("Show measure bars", combined_controls);
+    show_axes_check_->setChecked(true);
+    show_measure_guides_check_->setChecked(true);
+    combined_full_envelope_check_->setEnabled(false);
+    combined_beamline_check_->setEnabled(false);
+    combined_full_envelope_check_->setToolTip(
+        "Full axial envelope layer. Build a preview from the current trajectory sample, "
+        "or load it from a future manifest."
+    );
+    combined_beamline_check_->setToolTip(
+        "Imported physical beamline geometry as a separate OBJ layer."
+    );
+
+    const auto make_swatch = [this, combined_controls](const QColor& color) {
+        auto* swatch = new QPushButton(combined_controls);
+        swatch->setFixedSize(18, 18);
+        swatch->setText("");
+        swatch->setToolTip("Layer color");
+        swatch->setCursor(Qt::PointingHandCursor);
+        updateLayerSwatch(swatch, color);
+        return swatch;
+    };
+
+    trajectory_color_swatch_ = make_swatch(QColor(120, 255, 210));
+    caustic_color_swatch_ = make_swatch(QColor(118, 170, 255));
+    lens_color_swatch_ = make_swatch(QColor(255, 190, 120));
+    full_envelope_color_swatch_ = make_swatch(QColor(180, 140, 255));
+    beamline_color_swatch_ = make_swatch(QColor(205, 214, 226));
+
+    connect(trajectory_color_swatch_, &QPushButton::clicked, this, [this]() {
+        setLayerColorFromSwatch(
+            trajectory_color_swatch_,
+            combined_trajectory_layer_,
+            QColor(120, 255, 210)
+        );
+    });
+    connect(caustic_color_swatch_, &QPushButton::clicked, this, [this]() {
+        setLayerColorFromSwatch(
+            caustic_color_swatch_,
+            combined_caustic_layer_,
+            QColor(118, 170, 255)
+        );
+    });
+    connect(lens_color_swatch_, &QPushButton::clicked, this, [this]() {
+        setLayerColorFromSwatch(
+            lens_color_swatch_,
+            combined_lens_layer_,
+            QColor(255, 190, 120)
+        );
+    });
+    connect(full_envelope_color_swatch_, &QPushButton::clicked, this, [this]() {
+        setLayerColorFromSwatch(
+            full_envelope_color_swatch_,
+            combined_full_envelope_layer_,
+            QColor(180, 140, 255)
+        );
+    });
+    connect(beamline_color_swatch_, &QPushButton::clicked, this, [this]() {
+        setLayerColorFromSwatch(
+            beamline_color_swatch_,
+            combined_beamline_layer_,
+            QColor(205, 214, 226)
+        );
+    });
+
+    build_full_envelope_button_ = new QPushButton("Build full envelope", combined_controls);
+    import_beamline_button_ = new QPushButton("Import beamline OBJ", combined_controls);
+    clear_beamline_button_ = new QPushButton("Clear beamline", combined_controls);
+
+    build_full_envelope_button_->setToolTip(
+        "Create a preview OBJ for the full beam envelope from the loaded trajectory preview."
+    );
+    import_beamline_button_->setToolTip(
+        "Import a physical beamline OBJ as a separate scene layer."
+    );
+    clear_beamline_button_->setToolTip("Remove the imported beamline geometry layer.");
+    build_full_envelope_button_->setEnabled(false);
+    clear_beamline_button_->setEnabled(false);
+
+    auto* envelope_description = new QLabel(
+        "Envelope proxy: boundary surface reconstructed from transverse beam slices. "
+        "It is not the physical beamline tube.",
+        combined_controls
+    );
+    envelope_description->setWordWrap(true);
+    envelope_description->setStyleSheet(
+        "color: #b7c8df; background: #151b26; border: 1px solid #2d3a4f; "
+        "border-radius: 6px; padding: 8px;"
+    );
+
+    combined_trajectories_check_->setChecked(false);
+    combined_caustic_check_->setChecked(true);
+    combined_lens_check_->setChecked(true);
+
+    beam_display_mode_ = new QComboBox(combined_controls);
+    beam_display_mode_->addItem("Individual trajectories");
+    beam_display_mode_->addItem("Focal envelope proxy");
+    beam_display_mode_->addItem("Full overlay");
+    beam_display_mode_->setCurrentIndex(1);
+
+    trajectory_count_slider_ = new QSlider(Qt::Horizontal, combined_controls);
+    trajectory_count_slider_->setRange(0, 1);
+    trajectory_count_slider_->setValue(0);
+
+    trajectory_count_spin_ = new QSpinBox(combined_controls);
+    trajectory_count_spin_->setRange(0, 1);
+    trajectory_count_spin_->setValue(0);
+
+    trajectory_parameter_slider_ = new QSlider(Qt::Horizontal, combined_controls);
+    trajectory_parameter_slider_->setRange(0, 100);
+    trajectory_parameter_slider_->setValue(100);
+
+    trajectory_count_label_ = new QLabel("Visible trajectories", combined_controls);
+    trajectory_parameter_label_ = new QLabel("Trajectory progress", combined_controls);
+    trajectory_parameter_value_label_ = new QLabel("1.00", combined_controls);
+    trajectory_parameter_value_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    trajectory_parameter_value_label_->setFixedWidth(42);
+    trajectory_parameter_value_label_->setStyleSheet(
+        "color: #E8EEF8; font-weight: 700;"
+    );
+
+    auto* camera_reset_button = new QPushButton("Reset", combined_controls);
+    auto* camera_iso_button = new QPushButton("Iso", combined_controls);
+    auto* camera_xy_button = new QPushButton("XY", combined_controls);
+    auto* camera_yz_button = new QPushButton("YZ", combined_controls);
+    auto* camera_xz_button = new QPushButton("XZ", combined_controls);
+
+    camera_reset_button->setToolTip("Reset the free 3D camera.");
+    camera_iso_button->setToolTip("Isometric camera preset.");
+    camera_xy_button->setToolTip("XY plane camera preset.");
+    camera_yz_button->setToolTip("YZ plane camera preset.");
+    camera_xz_button->setToolTip("XZ plane camera preset.");
+
+    auto* layers_section_label = new QLabel("LAYERS", combined_controls);
+    layers_section_label->setObjectName("sectionLabel");
+
+    const auto make_layer_row =
+        [combined_controls](QCheckBox* checkbox, QPushButton* swatch) {
+            auto* row = new QWidget(combined_controls);
+            auto* row_layout = new QHBoxLayout(row);
+            row_layout->setContentsMargins(0, 0, 0, 0);
+            row_layout->setSpacing(8);
+            row_layout->addWidget(checkbox, 1);
+            row_layout->addWidget(swatch, 0, Qt::AlignRight | Qt::AlignVCenter);
+            return row;
+        };
+
+    combined_controls_layout->addWidget(layers_section_label);
+    combined_controls_layout->addWidget(
+        make_layer_row(combined_trajectories_check_, trajectory_color_swatch_)
+    );
+    combined_controls_layout->addWidget(
+        make_layer_row(combined_caustic_check_, caustic_color_swatch_)
+    );
+    combined_controls_layout->addWidget(
+        make_layer_row(combined_lens_check_, lens_color_swatch_)
+    );
+    combined_controls_layout->addWidget(
+        make_layer_row(combined_full_envelope_check_, full_envelope_color_swatch_)
+    );
+    combined_controls_layout->addWidget(
+        make_layer_row(combined_beamline_check_, beamline_color_swatch_)
+    );
+    combined_controls_layout->addSpacing(6);
+    combined_controls_layout->addWidget(envelope_description);
+    combined_controls_layout->addSpacing(10);
+
+    auto* pending_action_grid = new QGridLayout();
+    pending_action_grid->addWidget(build_full_envelope_button_, 0, 0, 1, 2);
+    pending_action_grid->addWidget(import_beamline_button_, 1, 0);
+    pending_action_grid->addWidget(clear_beamline_button_, 1, 1);
+    auto* mode_section_label = new QLabel("DISPLAY MODE", combined_controls);
+    mode_section_label->setObjectName("sectionLabel");
+    auto* overlays_section_label = new QLabel("OVERLAYS", combined_controls);
+    overlays_section_label->setObjectName("sectionLabel");
+    combined_controls_layout->addLayout(pending_action_grid);
+    combined_controls_layout->addSpacing(10);
+    combined_controls_layout->addWidget(overlays_section_label);
+    combined_controls_layout->addWidget(show_axes_check_);
+    combined_controls_layout->addWidget(show_measure_guides_check_);
+    combined_controls_layout->addSpacing(10);
+    combined_controls_layout->addWidget(mode_section_label);
+    combined_controls_layout->addWidget(beam_display_mode_);
+    combined_controls_layout->addSpacing(12);
+    combined_controls_layout->addWidget(trajectory_count_label_);
+    combined_controls_layout->addWidget(trajectory_count_slider_);
+    combined_controls_layout->addWidget(trajectory_count_spin_);
+    combined_controls_layout->addSpacing(10);
+    auto* param_header = new QHBoxLayout();
+    param_header->setContentsMargins(0, 0, 0, 0);
+    param_header->addWidget(trajectory_parameter_label_, 1);
+    param_header->addWidget(trajectory_parameter_value_label_);
+    combined_controls_layout->addLayout(param_header);
+    combined_controls_layout->addWidget(trajectory_parameter_slider_);
+    combined_controls_layout->addSpacing(12);
+    auto* camera_section_label = new QLabel("CAMERA", combined_controls);
+    camera_section_label->setObjectName("sectionLabel");
+    combined_controls_layout->addWidget(camera_section_label);
+
+    auto* camera_grid = new QGridLayout();
+    camera_grid->addWidget(camera_reset_button, 0, 0, 1, 2);
+    camera_grid->addWidget(camera_iso_button, 1, 0);
+    camera_grid->addWidget(camera_xy_button, 1, 1);
+    camera_grid->addWidget(camera_yz_button, 2, 0);
+    camera_grid->addWidget(camera_xz_button, 2, 1);
+    combined_controls_layout->addLayout(camera_grid);
+    combined_controls_layout->addStretch(1);
+
+    combined_controls_scroll->setWidget(combined_controls);
+    combined_layout->addWidget(combined_controls_scroll, 0);
+    combined_layout->addWidget(combined_scene_viewer_, 1);
+
+    trajectories_obj_viewer_ = new ObjViewerWidget(tabs_);
+    caustic_obj_viewer_ = new ObjViewerWidget(tabs_);
+    lens_obj_viewer_ = new ObjViewerWidget(tabs_);
+
+    const auto make_obj_viewer_page = [this](ObjViewerWidget* viewer) {
+        auto* page = new QWidget(tabs_);
+        auto* layout = new QVBoxLayout(page);
+        auto* toolbar = new QHBoxLayout();
+
+        auto* reset = new QPushButton("Reset", page);
+        auto* iso = new QPushButton("Iso", page);
+        auto* xy = new QPushButton("XY", page);
+        auto* yz = new QPushButton("YZ", page);
+        auto* xz = new QPushButton("XZ", page);
+        auto* axes = new QCheckBox("Axes", page);
+        auto* measures = new QCheckBox("Measures", page);
+        axes->setChecked(true);
+        measures->setChecked(true);
+
+        reset->setToolTip("Reset the free 3D camera.");
+        iso->setToolTip("Isometric camera preset.");
+        xy->setToolTip("XY plane camera preset.");
+        yz->setToolTip("YZ plane camera preset.");
+        xz->setToolTip("XZ plane camera preset.");
+
+        toolbar->addWidget(reset);
+        toolbar->addWidget(iso);
+        toolbar->addWidget(xy);
+        toolbar->addWidget(yz);
+        toolbar->addWidget(xz);
+        toolbar->addSpacing(10);
+        toolbar->addWidget(axes);
+        toolbar->addWidget(measures);
+        toolbar->addStretch(1);
+
+        layout->addLayout(toolbar);
+        layout->addWidget(viewer, 1);
+
+        connect(reset, &QPushButton::clicked, viewer, &ObjViewerWidget::resetCamera);
+        connect(iso, &QPushButton::clicked, viewer, [viewer]() { viewer->setViewPreset(0); });
+        connect(xy, &QPushButton::clicked, viewer, [viewer]() { viewer->setViewPreset(1); });
+        connect(yz, &QPushButton::clicked, viewer, [viewer]() { viewer->setViewPreset(2); });
+        connect(xz, &QPushButton::clicked, viewer, [viewer]() { viewer->setViewPreset(3); });
+        connect(axes, &QCheckBox::toggled, viewer, &ObjViewerWidget::setAxesVisible);
+        connect(measures, &QCheckBox::toggled, viewer, &ObjViewerWidget::setMeasureGuidesVisible);
+
+        obj_axes_checks_.push_back(axes);
+        obj_measure_guides_checks_.push_back(measures);
+
+        return page;
+    };
+
+    trajectories_table_ = new QTableWidget(tabs_);
+    focal_slice_table_ = new QTableWidget(tabs_);
+    envelope_table_ = new QTableWidget(tabs_);
+
+    for (auto* table : {trajectories_table_, focal_slice_table_, envelope_table_}) {
+        table->setAlternatingRowColors(true);
+        table->horizontalHeader()->setStretchLastSection(true);
+        table->setSortingEnabled(false);
+    }
+
+    tabs_->addTab(dashboard_, "Dashboard");
+
+    auto* statistics_page = new QWidget(tabs_);
+    statistics_page->setObjectName("StatisticsPage");
+
+    auto* statistics_page_layout = new QVBoxLayout(statistics_page);
+    statistics_page_layout->setContentsMargins(8, 8, 8, 8);
+    statistics_page_layout->setSpacing(8);
+
+    auto* statistics_controls_row = new QWidget(statistics_page);
+    auto* statistics_controls_layout = new QHBoxLayout(statistics_controls_row);
+    statistics_controls_layout->setContentsMargins(0, 0, 0, 0);
+    statistics_controls_layout->setSpacing(8);
+
+    auto* toggle_statistics_details_button = new QPushButton("Show details panels", statistics_controls_row);
+    toggle_statistics_details_button->setObjectName("SecondaryButton");
+    statistics_controls_layout->addStretch();
+    statistics_controls_layout->addWidget(toggle_statistics_details_button);
+
+    statistics_page_layout->addWidget(statistics_controls_row);
+
+    statistics_dashboard_->setMinimumSize(1500, 1180);
+    statistics_dashboard_->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
+
+    auto* statistics_scroll_area = new QScrollArea(statistics_page);
+    statistics_scroll_area->setObjectName("StatisticsScrollArea");
+    statistics_scroll_area->setWidgetResizable(false);
+    statistics_scroll_area->setFrameShape(QFrame::NoFrame);
+    statistics_scroll_area->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    statistics_scroll_area->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    statistics_scroll_area->setWidget(statistics_dashboard_);
+
+    statistics_page_layout->addWidget(statistics_scroll_area, 1);
+
+    auto set_statistics_details_visible = [this](bool visible) {
+        if (statistics_dashboard_ == nullptr) {
+            return;
+        }
+
+        const QStringList needles{
+            "beam radius inspector",
+            "run directory",
+            "analysis log"
+        };
+
+        for (QLabel* label : statistics_dashboard_->findChildren<QLabel*>()) {
+            const QString text = label->text().trimmed().toLower();
+
+            bool matched = false;
+            for (const QString& needle : needles) {
+                if (text.contains(needle)) {
+                    matched = true;
+                    break;
+                }
+            }
+
+            if (!matched) {
+                continue;
+            }
+
+            QWidget* panel = label;
+            for (int depth = 0;
+                 depth < 8 &&
+                 panel != nullptr &&
+                 panel->parentWidget() != nullptr &&
+                 panel->parentWidget() != statistics_dashboard_;
+                 ++depth) {
+                panel = panel->parentWidget();
+            }
+
+            if (panel != nullptr && panel != statistics_dashboard_) {
+                panel->setVisible(visible);
+            }
+        }
+
+        statistics_dashboard_->adjustSize();
+    };
+
+    connect(toggle_statistics_details_button, &QPushButton::clicked, this,
+        [toggle_statistics_details_button, set_statistics_details_visible, details_visible = false]() mutable {
+            details_visible = !details_visible;
+            set_statistics_details_visible(details_visible);
+            toggle_statistics_details_button->setText(
+                details_visible ? "Hide details panels" : "Show details panels"
+            );
+        }
+    );
+
+    QTimer::singleShot(0, this, [set_statistics_details_visible]() {
+        set_statistics_details_visible(false);
+    });
+
+    tabs_->addTab(statistics_page, "Statistics");
+    tabs_->addTab(combined_page_, "Combined 3D");
+    tabs_->addTab(trajectory_plot_page_, "Individual trajectories 2D");
+    tabs_->addTab(make_obj_viewer_page(trajectories_obj_viewer_), "Individual trajectories 3D");
+    tabs_->addTab(focal_slice_plot_page_, "Focal slice");
+    tabs_->addTab(envelope_plot_page_, "Focal envelope rings");
+    tabs_->addTab(make_obj_viewer_page(caustic_obj_viewer_), "Focal envelope proxy");
+    tabs_->addTab(make_obj_viewer_page(lens_obj_viewer_), "Effective lens");
+    tabs_->addTab(trajectories_table_, "Individual trajectories CSV");
+    tabs_->addTab(focal_slice_table_, "Focal slice CSV");
+    tabs_->addTab(envelope_table_, "Focal envelope rings CSV");
+
+    log_panel_ = new QWidget(central);
+    auto* log_layout = new QVBoxLayout(log_panel_);
+    log_layout->setContentsMargins(10, 6, 10, 10);
+    log_layout->setSpacing(6);
+
+    auto* log_header = new QHBoxLayout();
+    auto* log_title = new QLabel("Analysis log", log_panel_);
+    log_title->setStyleSheet("color: #E8EEF8; font-weight: 700;");
+    analysis_activity_label_ = new QLabel("", log_panel_);
+    analysis_activity_label_->setStyleSheet("color: #7CF2D2; font-weight: 700;");
+    analysis_activity_label_->setVisible(false);
+    log_toggle_button_ = new QPushButton("▼", log_panel_);
+    log_toggle_button_->setFixedWidth(34);
+    log_toggle_button_->setToolTip("Show or hide the analysis log.");
+
+    log_header->addWidget(log_title);
+    log_header->addWidget(analysis_activity_label_);
+    log_header->addStretch(1);
+    log_header->addWidget(log_toggle_button_);
+
+    analysis_log_ = new QPlainTextEdit(log_panel_);
+    analysis_log_->setReadOnly(true);
+    analysis_log_->setMaximumHeight(160);
+    analysis_log_->setObjectName("logView");
+    analysis_log_->setVisible(false);
+
+    log_layout->addLayout(log_header);
+    log_layout->addWidget(analysis_log_);
+
+    connect(log_toggle_button_, &QPushButton::clicked, this, [this]() {
+        const bool show = !analysis_log_->isVisible();
+        analysis_log_->setVisible(show);
+        log_toggle_button_->setText(show ? "▲" : "▼");
+    });
+
+    analysis_activity_timer_ = new QTimer(this);
+    connect(analysis_activity_timer_, &QTimer::timeout, this, [this]() {
+        static int phase = 0;
+        const QString dots((phase % 3) + 1, '.');
+        analysis_activity_label_->setText("Analyzing" + dots);
+        ++phase;
+    });
+
+    root_layout->addWidget(top_bar_widget);
+    root_layout->addWidget(tabs_, 1);
+    root_layout->addWidget(log_panel_, 0);
+
+    central_stack_->addWidget(welcome_page);
+    central_stack_->addWidget(central);
+    central_stack_->setCurrentIndex(0);
+
+    setCentralWidget(central_stack_);
+
+    auto* mb = menuBar();
+    auto* file_menu = mb->addMenu("File");
+    open_analyze_action_ = file_menu->addAction("Open + Analyze...");
+    connect(open_analyze_action_, &QAction::triggered, this, [this]() {
+        openDataFileAndRun();
+    });
+    file_menu->addSeparator();
+    recent_menu_ = file_menu->addMenu("Recent runs");
+    file_menu->addSeparator();
+    auto* quit_action = file_menu->addAction("Quit");
+    connect(quit_action, &QAction::triggered, qApp, &QApplication::quit);
+
+    auto* help_menu = mb->addMenu("Help");
+    auto* about_action = help_menu->addAction("About BeamLabStudio");
+    connect(about_action, &QAction::triggered, this, [this]() {
+        QMessageBox::about(
+            this,
+            "About BeamLabStudio",
+            "BeamLabStudio was created by José Labarca as a scientific software project "
+            "for particle beam analysis, 3D visualization, and simulation post-processing."
+        );
+    });
+
+    updateExportControls();
+
+    connect(combined_trajectories_check_, &QCheckBox::toggled, this, [this](bool checked) {
+        combined_scene_viewer_->setLayerVisible(combined_trajectory_layer_, checked);
+    });
+
+    connect(combined_caustic_check_, &QCheckBox::toggled, this, [this](bool checked) {
+        combined_scene_viewer_->setLayerVisible(combined_caustic_layer_, checked);
+    });
+
+    connect(combined_lens_check_, &QCheckBox::toggled, this, [this](bool checked) {
+        combined_scene_viewer_->setLayerVisible(combined_lens_layer_, checked);
+    });
+
+    connect(combined_full_envelope_check_, &QCheckBox::toggled, this, [this](bool checked) {
+        combined_scene_viewer_->setLayerVisible(combined_full_envelope_layer_, checked);
+    });
+
+    connect(combined_beamline_check_, &QCheckBox::toggled, this, [this](bool checked) {
+        combined_scene_viewer_->setLayerVisible(combined_beamline_layer_, checked);
+    });
+
+    connect(build_full_envelope_button_, &QPushButton::clicked, this, [this]() {
+        buildFullEnvelopePreview();
+    });
+
+    connect(import_beamline_button_, &QPushButton::clicked, this, [this]() {
+        importPhysicalBeamlineGeometry();
+    });
+
+    connect(clear_beamline_button_, &QPushButton::clicked, this, [this]() {
+        clearPhysicalBeamlineGeometry();
+    });
+
+    connect(show_axes_check_, &QCheckBox::toggled, this, [this](bool checked) {
+        combined_scene_viewer_->setAxesVisible(checked);
+    });
+
+    connect(show_measure_guides_check_, &QCheckBox::toggled, this, [this](bool checked) {
+        combined_scene_viewer_->setMeasureGuidesVisible(checked);
+    });
+
+    connect(trajectory_count_slider_, &QSlider::valueChanged, this, [this](int value) {
+        trajectory_count_spin_->setValue(value);
+        combined_scene_viewer_->setLayerMaxPolylines(combined_trajectory_layer_, value);
+    });
+
+    connect(
+        trajectory_count_spin_,
+        static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged),
+        this,
+        [this](int value) {
+            trajectory_count_slider_->setValue(value);
+            combined_scene_viewer_->setLayerMaxPolylines(combined_trajectory_layer_, value);
+        }
+    );
+
+
+    connect(trajectory_parameter_slider_, &QSlider::valueChanged, this, [this](int value) {
+        const double lambda = static_cast<double>(value) / 100.0;
+        combined_scene_viewer_->setTrajectoryParameter(lambda);
+        trajectory_parameter_value_label_->setText(QString::number(lambda, 'f', 2));
+    });
+
+    connect(
+        beam_display_mode_,
+        static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+        this,
+        [this](int) {
+            updateCombinedDisplayMode();
+        }
+    );
+
+    connect(camera_reset_button, &QPushButton::clicked, this, [this]() {
+        combined_scene_viewer_->resetCamera();
+    });
+
+    connect(camera_iso_button, &QPushButton::clicked, this, [this]() {
+        combined_scene_viewer_->setViewPreset(0);
+    });
+
+    connect(camera_xy_button, &QPushButton::clicked, this, [this]() {
+        combined_scene_viewer_->setViewPreset(1);
+    });
+
+    connect(camera_yz_button, &QPushButton::clicked, this, [this]() {
+        combined_scene_viewer_->setViewPreset(2);
+    });
+
+    connect(camera_xz_button, &QPushButton::clicked, this, [this]() {
+        combined_scene_viewer_->setViewPreset(3);
+    });
+
+    connect(tabs_, &QTabWidget::currentChanged, this, [this](int) {
+        QTimer::singleShot(0, this, [this]() {
+            QWidget* current = tabs_->currentWidget();
+
+            if (current == trajectory_plot_page_) {
+                fitSceneInView(trajectory_view_, trajectory_scene_);
+            } else if (current == focal_slice_plot_page_) {
+                fitSceneInView(focal_slice_view_, focal_slice_scene_);
+            } else if (current == envelope_plot_page_) {
+                fitSceneInView(envelope_view_, envelope_scene_);
+            }
+        });
+
+        QTimer::singleShot(120, this, [this]() {
+            QWidget* current = tabs_->currentWidget();
+
+            if (current == trajectory_plot_page_) {
+                fitSceneInView(trajectory_view_, trajectory_scene_);
+            } else if (current == focal_slice_plot_page_) {
+                fitSceneInView(focal_slice_view_, focal_slice_scene_);
+            } else if (current == envelope_plot_page_) {
+                fitSceneInView(envelope_view_, envelope_scene_);
+            }
+        });
+    });
+
+    updateCombinedDisplayMode();
+    updateRecentMenu();
+    restoreSettings();
+    showWelcomeScreen();
+}
+
+QString MainWindow::readTextFile(const QString& path) const
+{
+    QFile file(path);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    QTextStream stream(&file);
+    return stream.readAll();
+}
+
+QString MainWindow::extractJsonString(const QString& text,
+                                      const QString& key) const
+{
+    const QString pattern =
+        QStringLiteral("\"%1\"\\s*:\\s*\"([^\"]*)\"").arg(QRegularExpression::escape(key));
+
+    const QRegularExpression regex(pattern);
+    const auto match = regex.match(text);
+
+    if (!match.hasMatch()) {
+        return {};
+    }
+
+    return match.captured(1);
+}
+
+QString MainWindow::extractJsonNumber(const QString& text,
+                                      const QString& key) const
+{
+    const QString pattern =
+        QStringLiteral("\"%1\"\\s*:\\s*([-+0-9.eE]+)").arg(QRegularExpression::escape(key));
+
+    const QRegularExpression regex(pattern);
+    const auto match = regex.match(text);
+
+    if (!match.hasMatch()) {
+        return {};
+    }
+
+    return match.captured(1);
+}
+
+QString MainWindow::resolvePath(const QString& raw_path,
+                                const QString& manifest_path) const
+{
+    if (raw_path.isEmpty()) {
+        return {};
+    }
+
+    const QFileInfo raw_info(raw_path);
+
+    if (raw_info.isAbsolute() && raw_info.exists()) {
+        return raw_info.absoluteFilePath();
+    }
+
+    if (raw_info.exists()) {
+        return raw_info.absoluteFilePath();
+    }
+
+    QFileInfo manifest_info(manifest_path);
+    QDir dir = manifest_info.dir();
+
+    for (int depth = 0; depth < 10; ++depth) {
+        const QString candidate = dir.absoluteFilePath(raw_path);
+
+        if (QFileInfo(candidate).exists()) {
+            return QFileInfo(candidate).absoluteFilePath();
+        }
+
+        if (!dir.cdUp()) {
+            break;
+        }
+    }
+
+    return raw_path;
+}
+
+QString MainWindow::makeDashboardText(const QString& manifest_text,
+                                      const QString& trajectories_csv,
+                                      const QString& focal_slice_csv,
+                                      const QString& envelope_csv,
+                                      const QString& caustic_obj,
+                                      const QString& lens_obj) const
+{
+    QString text;
+
+    text += "BeamLabStudio run dashboard\n";
+    text += "===========================\n\n";
+
+    text += "Configuration\n";
+    text += "-------------\n";
+    text += "Axis mode:       " + extractJsonString(manifest_text, "axis_mode") + "\n";
+    text += "Reference mode:  " + extractJsonString(manifest_text, "reference_mode") + "\n";
+    text += "Binning mode:    " + extractJsonString(manifest_text, "binning_mode") + "\n";
+    text += "Axial bins:      " + extractJsonNumber(manifest_text, "axial_bin_count") + "\n";
+    text += "Window:          " + extractJsonNumber(manifest_text, "half_window_frames") + "\n\n";
+
+    text += "Visualization rows\n";
+    text += "------------------\n";
+    text += "Trajectories preview: " + extractJsonNumber(manifest_text, "trajectories_preview") + "\n";
+    text += "Focal slice points:   " + extractJsonNumber(manifest_text, "focal_slice_points") + "\n";
+    text += "Envelope proxy rings: " + extractJsonNumber(manifest_text, "envelope_rings") + "\n\n";
+
+    text += "Loaded files\n";
+    text += "------------\n";
+    text += "Trajectories CSV:\n  " + trajectories_csv + "\n  status: " + fileStatus(trajectories_csv) + "\n\n";
+    text += "Focal slice CSV:\n  " + focal_slice_csv + "\n  status: " + fileStatus(focal_slice_csv) + "\n\n";
+    text += "Focal envelope proxy rings CSV:\n  " + envelope_csv + "\n  status: " + fileStatus(envelope_csv) + "\n\n";
+
+    if (fileStatus(trajectories_csv) == "missing" ||
+        fileStatus(focal_slice_csv) == "missing" ||
+        fileStatus(envelope_csv) == "missing") {
+        text += "WARNING\n";
+        text += "-------\n";
+        text += "At least one visualization CSV is missing from the path resolved by the UI.\n";
+        text += "The manifest is an internal analysis contract; check the run output paths on disk.\n\n";
+    }
+    text += "Focal envelope proxy preview OBJ:\n  " +
+        caustic_obj +
+        "\n  status: " +
+        fileStatus(caustic_obj) +
+        "\n\n";
+    text += "Effective lens body preview OBJ:\n  " + lens_obj + "\n  status: " + fileStatus(lens_obj) + "\n\n";
+
+    text += "Notes\n";
+    text += "-----\n";
+    text += "This UI is reading lightweight preview files, not the full simulation dataset.\n";
+    text += "Envelope proxy: boundary surface reconstructed from transverse beam slices. It is not the physical beamline tube.\n";
+    text += "Full beam envelope preview can be built from loaded trajectory samples; future engine output can replace it with a full-resolution layer.\n";
+    text += "Physical beamline geometry is handled as a separate imported OBJ layer.\n";
+    text += "The effective lens is a focal-aperture proxy, not a unique inverse reconstruction of the magnet.\n";
+
+    return text;
+}
+
+void MainWindow::saveSettings()
+{
+    QSettings settings("BeamLab", "BeamLabStudio");
+    settings.setValue("window/geometry", saveGeometry());
+    settings.setValue("window/state", saveState());
+    settings.setValue("last_open_dir", last_open_dir_);
+
+    if (beam_display_mode_ != nullptr) {
+        settings.setValue("3d/beam_display_mode", beam_display_mode_->currentIndex());
+    }
+
+    if (show_axes_check_ != nullptr) {
+        settings.setValue("3d/show_axes", show_axes_check_->isChecked());
+    }
+
+    if (show_measure_guides_check_ != nullptr) {
+        settings.setValue("3d/show_measure_guides", show_measure_guides_check_->isChecked());
+    }
+}
+
+void MainWindow::restoreSettings()
+{
+    QSettings settings("BeamLab", "BeamLabStudio");
+
+    const QByteArray geometry = settings.value("window/geometry").toByteArray();
+
+    if (!geometry.isEmpty()) {
+        restoreGeometry(geometry);
+    }
+
+    const QByteArray state = settings.value("window/state").toByteArray();
+
+    if (!state.isEmpty()) {
+        restoreState(state);
+    }
+
+    last_open_dir_ = settings.value("last_open_dir", QString()).toString();
+
+    if (beam_display_mode_ != nullptr) {
+        const int saved_mode = settings.value("3d/beam_display_mode", 1).toInt();
+        const int clamped_mode =
+            std::clamp(saved_mode, 0, std::max(0, beam_display_mode_->count() - 1));
+        beam_display_mode_->setCurrentIndex(clamped_mode);
+        updateCombinedDisplayMode();
+    }
+
+    const bool show_axes = settings.value("3d/show_axes", true).toBool();
+    const bool show_guides = settings.value("3d/show_measure_guides", true).toBool();
+
+    if (show_axes_check_ != nullptr) {
+        const QSignalBlocker blocker(show_axes_check_);
+        show_axes_check_->setChecked(show_axes);
+    }
+
+    if (show_measure_guides_check_ != nullptr) {
+        const QSignalBlocker blocker(show_measure_guides_check_);
+        show_measure_guides_check_->setChecked(show_guides);
+    }
+
+    if (combined_scene_viewer_ != nullptr) {
+        combined_scene_viewer_->setAxesVisible(show_axes);
+        combined_scene_viewer_->setMeasureGuidesVisible(show_guides);
+    }
+
+    for (QCheckBox* checkbox : obj_axes_checks_) {
+        if (checkbox != nullptr) {
+            const QSignalBlocker blocker(checkbox);
+            checkbox->setChecked(show_axes);
+        }
+    }
+
+    for (QCheckBox* checkbox : obj_measure_guides_checks_) {
+        if (checkbox != nullptr) {
+            const QSignalBlocker blocker(checkbox);
+            checkbox->setChecked(show_guides);
+        }
+    }
+
+    for (ObjViewerWidget* viewer : {
+             trajectories_obj_viewer_,
+             caustic_obj_viewer_,
+             lens_obj_viewer_
+         }) {
+        if (viewer != nullptr) {
+            viewer->setAxesVisible(show_axes);
+            viewer->setMeasureGuidesVisible(show_guides);
+        }
+    }
+}
+
+void MainWindow::updateRecentMenu()
+{
+    if (recent_menu_ == nullptr) {
+        return;
+    }
+
+    recent_menu_->clear();
+
+    QSettings settings("BeamLab", "BeamLabStudio");
+    const QStringList recent_runs = settings.value("recent_runs").toStringList();
+
+    if (recent_runs.isEmpty()) {
+        QAction* empty_action = recent_menu_->addAction("No recent runs");
+        empty_action->setEnabled(false);
+        return;
+    }
+
+    for (const QString& path : recent_runs) {
+        QAction* action = recent_menu_->addAction(QFileInfo(path).fileName());
+        action->setToolTip(path);
+        connect(action, &QAction::triggered, this, [this, path]() {
+            loadManifest(path);
+        });
+    }
+}
+
+void MainWindow::addToRecentRuns(const QString& manifest_path)
+{
+    const QString absolute_path = QFileInfo(manifest_path).absoluteFilePath();
+
+    if (absolute_path.isEmpty()) {
+        return;
+    }
+
+    QSettings settings("BeamLab", "BeamLabStudio");
+    QStringList recent_runs = settings.value("recent_runs").toStringList();
+    recent_runs.removeAll(absolute_path);
+    recent_runs.prepend(absolute_path);
+
+    while (recent_runs.size() > 8) {
+        recent_runs.removeLast();
+    }
+
+    settings.setValue("recent_runs", recent_runs);
+    updateRecentMenu();
+}
+
+void MainWindow::updateLayerSwatch(QPushButton* swatch, const QColor& color)
+{
+    if (swatch == nullptr) {
+        return;
+    }
+
+    swatch->setProperty("layer_color", color);
+    swatch->setStyleSheet(
+        QString(
+            "background-color: %1;"
+            "border-radius: 4px;"
+            "border: 1px solid #3D4E66;"
+            "padding: 0;"
+        ).arg(color.name(QColor::HexRgb))
+    );
+}
+
+void MainWindow::setLayerColorFromSwatch(QPushButton* swatch,
+                                         const int layer_index,
+                                         const QColor& initial)
+{
+    if (swatch == nullptr || combined_scene_viewer_ == nullptr || layer_index < 0) {
+        return;
+    }
+
+    QColor current = swatch->property("layer_color").value<QColor>();
+
+    if (!current.isValid()) {
+        current = initial;
+    }
+
+    const QColor color =
+        QColorDialog::getColor(current, this, "Layer color", QColorDialog::ShowAlphaChannel);
+
+    if (!color.isValid()) {
+        return;
+    }
+
+    updateLayerSwatch(swatch, color);
+    combined_scene_viewer_->setLayerColor(layer_index, color);
+}
+
+void MainWindow::setAnalysisRunning(const bool running)
+{
+    if (welcome_open_button_ != nullptr) {
+        welcome_open_button_->setEnabled(!running);
+    }
+
+    if (open_analyze_button_ != nullptr) {
+        open_analyze_button_->setEnabled(!running);
+    }
+
+    if (open_analyze_action_ != nullptr) {
+        open_analyze_action_->setEnabled(!running);
+    }
+
+    if (analysis_activity_label_ != nullptr) {
+        analysis_activity_label_->setVisible(running);
+        analysis_activity_label_->setText(running ? "Analyzing." : "");
+    }
+
+    if (analysis_activity_timer_ != nullptr) {
+        if (running) {
+            analysis_activity_timer_->start(600);
+        } else {
+            analysis_activity_timer_->stop();
+        }
+    }
+
+    if (analysis_log_ != nullptr && running) {
+        analysis_log_->setVisible(true);
+    }
+
+    if (log_toggle_button_ != nullptr && running) {
+        log_toggle_button_->setText("▲");
+    }
+
+    updateExportControls();
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    saveSettings();
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (event == nullptr || event->mimeData() == nullptr) {
+        return;
+    }
+
+    const QList<QUrl> urls = event->mimeData()->urls();
+
+    if (urls.isEmpty() || !urls.first().isLocalFile()) {
+        event->ignore();
+        return;
+    }
+
+    const QString suffix =
+        QFileInfo(urls.first().toLocalFile()).suffix().toLower();
+
+    if (suffix == "root" || suffix == "csv" || suffix == "txt" || suffix == "dat") {
+        event->acceptProposedAction();
+        return;
+    }
+
+    event->ignore();
+}
+
+void MainWindow::dropEvent(QDropEvent* event)
+{
+    if (event == nullptr || event->mimeData() == nullptr) {
+        return;
+    }
+
+    const QList<QUrl> urls = event->mimeData()->urls();
+
+    if (urls.isEmpty() || !urls.first().isLocalFile()) {
+        event->ignore();
+        return;
+    }
+
+    openDataFileAndRunWithPath(urls.first().toLocalFile());
+    event->acceptProposedAction();
+}
+
+void MainWindow::loadManifest(const QString& path)
+{
+    const auto text = readTextFile(path);
+
+    if (text.isEmpty()) {
+        QMessageBox::warning(this, "BeamLabStudio", "Could not read manifest.");
+        return;
+    }
+
+    current_manifest_path_ = path;
+    QFileInfo manifest_info(path);
+    QDir run_dir = manifest_info.dir();
+    run_dir.cdUp();
+    current_run_dir_ = run_dir.absolutePath();
+
+    const auto trajectories_csv = resolvePath(
+        extractJsonString(text, "trajectories_preview_csv"),
+        path
+    );
+
+    const auto focal_slice_csv = resolvePath(
+        extractJsonString(text, "focal_slice_points_csv"),
+        path
+    );
+
+    const auto envelope_csv = resolvePath(
+        extractJsonString(text, "envelope_rings_csv"),
+        path
+    );
+
+    const auto trajectories_obj = resolvePath(
+        extractJsonString(text, "trajectories_preview_obj"),
+        path
+    );
+
+    const auto caustic_obj = resolvePath(
+        extractJsonString(text, "beam_caustic_preview_obj"),
+        path
+    );
+
+    QString lens_obj_raw = extractJsonString(text, "effective_lens_body_preview_obj");
+
+    if (lens_obj_raw.isEmpty()) {
+        lens_obj_raw = extractJsonString(text, "effective_lens_disk_preview_obj");
+    }
+
+    const auto lens_obj = resolvePath(
+        lens_obj_raw,
+        path
+    );
+
+    QString full_envelope_obj_raw =
+        extractJsonString(text, "full_beam_envelope_preview_obj");
+
+    if (full_envelope_obj_raw.isEmpty()) {
+        full_envelope_obj_raw = extractJsonString(text, "full_beam_envelope_obj");
+    }
+
+    const auto full_envelope_obj = resolvePath(
+        full_envelope_obj_raw,
+        path
+    );
+
+    current_trajectories_csv_ = trajectories_csv;
+    current_focal_slice_csv_ = focal_slice_csv;
+    current_envelope_csv_ = envelope_csv;
+    current_trajectories_obj_ = trajectories_obj;
+    current_caustic_obj_ = caustic_obj;
+    current_lens_obj_ = lens_obj;
+    current_full_envelope_obj_ = full_envelope_obj;
+    current_beamline_obj_.clear();
+    updateExportControls();
+
+    dashboard_->loadFromManifest(
+        text,
+        trajectories_csv,
+        focal_slice_csv,
+        envelope_csv,
+        caustic_obj,
+        lens_obj
+    );
+
+    if (statistics_dashboard_ != nullptr) {
+        statistics_dashboard_->loadRunFromManifest(path);
+    }
+    status_label_->setText("Loaded: " + path);
+
+    trajectories_obj_viewer_->loadObj(trajectories_obj);
+    caustic_obj_viewer_->loadObj(caustic_obj);
+    lens_obj_viewer_->loadObj(lens_obj);
+
+    combined_scene_viewer_->clearLayers();
+
+    combined_trajectory_layer_ = combined_scene_viewer_->addObjLayer(
+        "Trajectories",
+        trajectories_obj,
+        QColor(120, 255, 210)
+    );
+
+    combined_caustic_layer_ = combined_scene_viewer_->addObjLayer(
+        "Focal envelope proxy",
+        caustic_obj,
+        QColor(118, 170, 255)
+    );
+
+    combined_lens_layer_ = combined_scene_viewer_->addObjLayer(
+        "Effective lens body",
+        lens_obj,
+        QColor(255, 190, 120)
+    );
+
+    combined_full_envelope_layer_ = combined_scene_viewer_->addObjLayer(
+        "Full beam envelope",
+        full_envelope_obj,
+        QColor(180, 140, 255)
+    );
+
+    combined_beamline_layer_ = -1;
+
+    updateLayerSwatch(trajectory_color_swatch_, QColor(120, 255, 210));
+    updateLayerSwatch(caustic_color_swatch_, QColor(118, 170, 255));
+    updateLayerSwatch(lens_color_swatch_, QColor(255, 190, 120));
+    updateLayerSwatch(full_envelope_color_swatch_, QColor(180, 140, 255));
+    updateLayerSwatch(beamline_color_swatch_, QColor(205, 214, 226));
+
+    combined_scene_viewer_->setLayerOpacity(combined_trajectory_layer_, 0.55);
+    combined_scene_viewer_->setLayerOpacity(combined_caustic_layer_, 0.35);
+    combined_scene_viewer_->setLayerOpacity(combined_lens_layer_, 0.95);
+    combined_scene_viewer_->setLayerOpacity(combined_full_envelope_layer_, 0.25);
+
+    combined_scene_viewer_->setLayerLineWidth(combined_trajectory_layer_, 0.8);
+    combined_scene_viewer_->setLayerLineWidth(combined_caustic_layer_, 1.1);
+    combined_scene_viewer_->setLayerLineWidth(combined_lens_layer_, 1.1);
+    combined_scene_viewer_->setLayerLineWidth(combined_full_envelope_layer_, 0.9);
+
+    {
+        const QSignalBlocker b1(combined_trajectories_check_);
+        const QSignalBlocker b2(combined_caustic_check_);
+        const QSignalBlocker b3(combined_lens_check_);
+        const QSignalBlocker b4(combined_full_envelope_check_);
+        const QSignalBlocker b5(combined_beamline_check_);
+
+        combined_trajectories_check_->setEnabled(combined_trajectory_layer_ >= 0);
+        combined_caustic_check_->setEnabled(combined_caustic_layer_ >= 0);
+        combined_lens_check_->setEnabled(combined_lens_layer_ >= 0);
+        combined_full_envelope_check_->setEnabled(combined_full_envelope_layer_ >= 0);
+        combined_beamline_check_->setEnabled(false);
+
+        combined_trajectories_check_->setChecked(false);
+        combined_caustic_check_->setChecked(combined_caustic_layer_ >= 0);
+        combined_lens_check_->setChecked(combined_lens_layer_ >= 0);
+        combined_full_envelope_check_->setChecked(false);
+        combined_beamline_check_->setChecked(false);
+    }
+
+    if (build_full_envelope_button_ != nullptr) {
+        build_full_envelope_button_->setEnabled(QFileInfo::exists(trajectories_csv));
+    }
+
+    if (clear_beamline_button_ != nullptr) {
+        clear_beamline_button_->setEnabled(false);
+    }
+
+    const int trajectory_count =
+        combined_scene_viewer_->layerPolylineCount(combined_trajectory_layer_);
+
+    const bool has_trajectory_control = trajectory_count > 0;
+
+    trajectory_count_slider_->setEnabled(has_trajectory_control);
+    trajectory_count_spin_->setEnabled(has_trajectory_control);
+
+    if (has_trajectory_control) {
+        const int default_visible = trajectory_count / 2;
+        trajectory_count_label_->setText(
+            QString("Visible trajectories (0-%1)").arg(trajectory_count)
+        );
+
+        const QSignalBlocker b1(trajectory_count_slider_);
+        const QSignalBlocker b2(trajectory_count_spin_);
+
+        trajectory_count_slider_->setRange(0, trajectory_count);
+        trajectory_count_spin_->setRange(0, trajectory_count);
+
+        trajectory_count_slider_->setValue(default_visible);
+        trajectory_count_spin_->setValue(default_visible);
+
+        combined_scene_viewer_->setLayerMaxPolylines(
+            combined_trajectory_layer_,
+            default_visible
+        );
+    } else {
+        trajectory_count_label_->setText("Visible trajectories (0)");
+    }
+
+    {
+        const QSignalBlocker blocker(trajectory_parameter_slider_);
+        trajectory_parameter_slider_->setValue(100);
+    }
+
+    trajectory_parameter_value_label_->setText("1.00");
+    combined_scene_viewer_->setTrajectoryParameter(1.0);
+    updateCombinedDisplayMode();
+    combined_scene_viewer_->resetCamera();
+
+    loadTablePreview(trajectories_csv, trajectories_table_, 500);
+    loadTablePreview(focal_slice_csv, focal_slice_table_, 500);
+    loadTablePreview(envelope_csv, envelope_table_, 500);
+
+    plotCsv2D(
+        trajectories_csv,
+        "z_m",
+        "x_m",
+        "trajectory_index",
+        trajectory_scene_,
+        "Individual trajectories: z vs x",
+        true
+    );
+
+    plotCsv2D(
+        focal_slice_csv,
+        "u_m",
+        "v_m",
+        "",
+        focal_slice_scene_,
+        "Focal slice preview: u vs v",
+        false
+    );
+
+    plotCsv2D(
+        envelope_csv,
+        "u_m",
+        "v_m",
+        "slice_index",
+        envelope_scene_,
+        "Focal envelope proxy: u vs v",
+        true
+    );
+
+    showWorkspace();
+    tabs_->setCurrentIndex(1);
+    addToRecentRuns(path);
+}
+
+void MainWindow::updateCombinedDisplayMode()
+{
+    if (combined_scene_viewer_ == nullptr || beam_display_mode_ == nullptr) {
+        return;
+    }
+
+    const bool has_trajectories = combined_trajectory_layer_ >= 0;
+    const bool has_caustic = combined_caustic_layer_ >= 0;
+    const bool has_lens = combined_lens_layer_ >= 0;
+    const bool has_full_envelope = combined_full_envelope_layer_ >= 0;
+    const bool has_beamline = combined_beamline_layer_ >= 0;
+
+    const int mode = beam_display_mode_->currentIndex();
+    const bool wants_trajectories = mode == 0 || mode == 2;
+    const bool wants_caustic = mode == 1 || mode == 2;
+    const bool wants_full_envelope = mode == 2;
+    const bool wants_beamline = mode == 2;
+    const bool wants_lens = true;
+
+    const bool show_trajectories = wants_trajectories && has_trajectories;
+    const bool show_caustic = wants_caustic && has_caustic;
+    const bool show_lens = wants_lens && has_lens;
+    const bool show_full_envelope = wants_full_envelope && has_full_envelope;
+    const bool show_beamline = wants_beamline && has_beamline;
+
+    {
+        const QSignalBlocker b1(combined_trajectories_check_);
+        const QSignalBlocker b2(combined_caustic_check_);
+        const QSignalBlocker b3(combined_lens_check_);
+        const QSignalBlocker b4(combined_full_envelope_check_);
+        const QSignalBlocker b5(combined_beamline_check_);
+
+        combined_trajectories_check_->setEnabled(has_trajectories);
+        combined_caustic_check_->setEnabled(has_caustic);
+        combined_lens_check_->setEnabled(has_lens);
+        combined_full_envelope_check_->setEnabled(has_full_envelope);
+        combined_beamline_check_->setEnabled(has_beamline);
+
+        combined_trajectories_check_->setChecked(show_trajectories);
+        combined_caustic_check_->setChecked(show_caustic);
+        combined_lens_check_->setChecked(show_lens);
+        combined_full_envelope_check_->setChecked(show_full_envelope);
+        combined_beamline_check_->setChecked(show_beamline);
+    }
+
+    combined_scene_viewer_->setLayerVisible(combined_trajectory_layer_, show_trajectories);
+    combined_scene_viewer_->setLayerVisible(combined_caustic_layer_, show_caustic);
+    combined_scene_viewer_->setLayerVisible(combined_lens_layer_, show_lens);
+    combined_scene_viewer_->setLayerVisible(combined_full_envelope_layer_, show_full_envelope);
+    combined_scene_viewer_->setLayerVisible(combined_beamline_layer_, show_beamline);
+
+    const bool has_trajectory_controls =
+        show_trajectories &&
+        combined_scene_viewer_->layerPolylineCount(combined_trajectory_layer_) > 0;
+
+    trajectory_count_label_->setVisible(has_trajectory_controls);
+    trajectory_count_slider_->setVisible(has_trajectory_controls);
+    trajectory_count_spin_->setVisible(has_trajectory_controls);
+    trajectory_parameter_label_->setVisible(has_trajectory_controls);
+    trajectory_parameter_value_label_->setVisible(has_trajectory_controls);
+    trajectory_parameter_slider_->setVisible(has_trajectory_controls);
+
+    trajectory_count_slider_->setEnabled(has_trajectory_controls);
+    trajectory_count_spin_->setEnabled(has_trajectory_controls);
+    trajectory_parameter_slider_->setEnabled(has_trajectory_controls);
+
+    trajectory_color_swatch_->setEnabled(has_trajectories);
+    caustic_color_swatch_->setEnabled(has_caustic);
+    lens_color_swatch_->setEnabled(has_lens);
+    full_envelope_color_swatch_->setEnabled(has_full_envelope);
+    beamline_color_swatch_->setEnabled(has_beamline);
+}
+
+void MainWindow::updateExportControls()
+{
+    const bool has_run =
+        !current_manifest_path_.isEmpty() &&
+        QFileInfo::exists(current_manifest_path_) &&
+        !current_run_dir_.isEmpty() &&
+        running_process_ == nullptr;
+
+    for (auto* button : {
+             export_all_button_,
+             export_assets_button_,
+             export_png_button_,
+             export_mp4_button_,
+             export_pdf_button_
+         }) {
+        if (button != nullptr) {
+            button->setEnabled(has_run);
+        }
+    }
+}
+
+bool MainWindow::ensureRunLoaded() const
+{
+    if (!current_manifest_path_.isEmpty() &&
+        QFileInfo::exists(current_manifest_path_) &&
+        !current_run_dir_.isEmpty()) {
+        return true;
+    }
+
+    QMessageBox::warning(
+        const_cast<MainWindow*>(this),
+        "No analysis loaded",
+        "Run an analysis before exporting."
+    );
+    return false;
+}
+
+QString MainWindow::defaultExportBaseName() const
+{
+    const QFileInfo run_info(current_run_dir_);
+    const QString run_name =
+        run_info.fileName().isEmpty() ? "beamlab_run" : run_info.fileName();
+
+    return "BeamLabStudio_export_" +
+        sanitizeRunBase(run_name) +
+        "_" +
+        QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+}
+
+bool MainWindow::exportRunAssets(const QString& directory,
+                                 QStringList* messages) const
+{
+    if (!QDir().mkpath(directory)) {
+        if (messages != nullptr) {
+            messages->push_back("Could not create export directory: " + directory);
+        }
+        return false;
+    }
+
+    bool ok = true;
+    const QDir run(current_run_dir_);
+    const QDir out(directory);
+
+    ok = copyFileOverwrite(
+        current_manifest_path_,
+        out.filePath("manifest/visualization_manifest.json"),
+        messages
+    ) && ok;
+
+    ok = copyDirectoryRecursive(
+        run.filePath("tables"),
+        out.filePath("csv/tables"),
+        messages
+    ) && ok;
+
+    ok = copyFilesBySuffix(
+        run.filePath("visualization"),
+        out.filePath("csv/visualization"),
+        {"csv"},
+        messages
+    ) && ok;
+
+    if (statistics_dashboard_ != nullptr) {
+        QString stats_error;
+
+        if (!statistics_dashboard_->exportBeamRadiusSpreadsheet(
+                out.filePath("csv/statistics/beam_radius_profile.csv"),
+                &stats_error
+            )) {
+            ok = false;
+
+            if (messages != nullptr) {
+                messages->push_back(stats_error);
+            }
+        }
+    }
+
+    ok = copyFilesBySuffix(
+        run.filePath("geometry"),
+        out.filePath("models_3d"),
+        {"obj"},
+        messages
+    ) && ok;
+
+    if (!current_beamline_obj_.isEmpty() && QFileInfo::exists(current_beamline_obj_)) {
+        ok = copyFileOverwrite(
+            current_beamline_obj_,
+            out.filePath("models_3d/physical_beamline_geometry.obj"),
+            messages
+        ) && ok;
+    }
+
+    copyDirectoryRecursive(
+        run.filePath("reports"),
+        out.filePath("reports"),
+        messages
+    );
+
+    copyDirectoryRecursive(
+        run.filePath("equations"),
+        out.filePath("equations"),
+        messages
+    );
+
+    if (messages != nullptr) {
+        messages->push_back("CSV and 3D model assets exported to: " + directory);
+    }
+
+    return ok;
+}
+
+bool MainWindow::exportPlotPngsTo(const QString& directory,
+                                  QStringList* messages) const
+{
+    if (!QDir().mkpath(directory)) {
+        if (messages != nullptr) {
+            messages->push_back("Could not create plot directory: " + directory);
+        }
+        return false;
+    }
+
+    bool ok = true;
+    const QSize plot_size(1900, 1300);
+    const QDir out(directory);
+
+    ok = exportScenePng(
+        trajectory_scene_,
+        out.filePath("beam_trajectories_z_vs_x.png"),
+        plot_size,
+        messages
+    ) && ok;
+
+    ok = exportScenePng(
+        focal_slice_scene_,
+        out.filePath("focal_slice_u_vs_v.png"),
+        plot_size,
+        messages
+    ) && ok;
+
+    ok = exportScenePng(
+        envelope_scene_,
+        out.filePath("focal_envelope_proxy_u_vs_v.png"),
+        plot_size,
+        messages
+    ) && ok;
+
+    QString stats_error;
+
+    if (statistics_dashboard_ != nullptr &&
+        !statistics_dashboard_->exportChartsPng(
+            out.filePath("statistics"),
+            &stats_error
+        )) {
+        ok = false;
+
+        if (messages != nullptr) {
+            messages->push_back(stats_error);
+        }
+    }
+
+    if (messages != nullptr) {
+        messages->push_back("PNG plots exported to: " + directory);
+    }
+
+    return ok;
+}
+
+bool MainWindow::exportStatisticsPdfTo(const QString& path,
+                                       QStringList* messages) const
+{
+    QString error;
+    const bool ok =
+        statistics_dashboard_ != nullptr &&
+        statistics_dashboard_->exportStatisticsPdf(path, &error);
+
+    if (messages != nullptr) {
+        messages->push_back(ok ? "Statistics PDF exported to: " + path : error);
+    }
+
+    return ok;
+}
+
+bool MainWindow::exportTrajectoryVideoTo(const QString& path,
+                                         QStringList* messages)
+{
+    if (combined_scene_viewer_ == nullptr) {
+        if (messages != nullptr) {
+            messages->push_back("Combined 3D viewer is not available.");
+        }
+        return false;
+    }
+
+    const QString ffmpeg = QStandardPaths::findExecutable("ffmpeg");
+
+    if (ffmpeg.isEmpty()) {
+        if (messages != nullptr) {
+            messages->push_back("ffmpeg was not found. Install ffmpeg to export MP4 video.");
+        }
+        return false;
+    }
+
+    QFileInfo output_info(path);
+
+    if (!QDir().mkpath(output_info.absolutePath())) {
+        if (messages != nullptr) {
+            messages->push_back("Could not create video directory: " + output_info.absolutePath());
+        }
+        return false;
+    }
+
+    QDir temp_root(output_info.absoluteDir());
+    const QString frame_dir_path =
+        temp_root.filePath(".beamlab_frames_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz"));
+
+    if (!QDir().mkpath(frame_dir_path)) {
+        if (messages != nullptr) {
+            messages->push_back("Could not create video frame directory: " + frame_dir_path);
+        }
+        return false;
+    }
+
+    QDir frame_dir(frame_dir_path);
+    const int old_tab = tabs_ != nullptr ? tabs_->currentIndex() : -1;
+    const int old_mode = beam_display_mode_ != nullptr ? beam_display_mode_->currentIndex() : 0;
+    const int old_lambda = trajectory_parameter_slider_ != nullptr ? trajectory_parameter_slider_->value() : 100;
+
+    if (tabs_ != nullptr && combined_page_ != nullptr) {
+        tabs_->setCurrentWidget(combined_page_);
+    }
+
+    if (beam_display_mode_ != nullptr) {
+        beam_display_mode_->setCurrentIndex(0);
+    }
+
+    updateCombinedDisplayMode();
+    combined_scene_viewer_->setTrajectoryParameter(0.0);
+    combined_scene_viewer_->frameLongestAxisHorizontally();
+    QApplication::processEvents();
+
+    constexpr int frame_count = 120;
+    bool frames_ok = true;
+
+    for (int frame = 0; frame < frame_count; ++frame) {
+        const double lambda =
+            frame_count <= 1
+                ? 1.0
+                : static_cast<double>(frame) / static_cast<double>(frame_count - 1);
+
+        combined_scene_viewer_->setTrajectoryParameter(lambda);
+
+        if (trajectory_parameter_slider_ != nullptr) {
+            const QSignalBlocker blocker(trajectory_parameter_slider_);
+            trajectory_parameter_slider_->setValue(static_cast<int>(std::round(lambda * 100.0)));
+        }
+
+        if (trajectory_parameter_value_label_ != nullptr) {
+            trajectory_parameter_value_label_->setText(QString::number(lambda, 'f', 2));
+        }
+
+        combined_scene_viewer_->update();
+        QApplication::processEvents();
+
+        const QPixmap frame_pixmap = combined_scene_viewer_->grab();
+        const QString frame_path =
+            frame_dir.filePath(QString("frame_%1.png").arg(frame, 4, 10, QChar('0')));
+
+        if (frame_pixmap.isNull() || !frame_pixmap.save(frame_path, "PNG")) {
+            frames_ok = false;
+            break;
+        }
+    }
+
+    if (beam_display_mode_ != nullptr) {
+        beam_display_mode_->setCurrentIndex(old_mode);
+    }
+
+    if (trajectory_parameter_slider_ != nullptr) {
+        trajectory_parameter_slider_->setValue(old_lambda);
+    }
+
+    if (trajectory_parameter_value_label_ != nullptr) {
+        trajectory_parameter_value_label_->setText(
+            QString::number(static_cast<double>(old_lambda) / 100.0, 'f', 2)
+        );
+    }
+
+    combined_scene_viewer_->setTrajectoryParameter(static_cast<double>(old_lambda) / 100.0);
+
+    updateCombinedDisplayMode();
+
+    if (tabs_ != nullptr && old_tab >= 0) {
+        tabs_->setCurrentIndex(old_tab);
+    }
+
+    QApplication::processEvents();
+
+    if (!frames_ok) {
+        if (messages != nullptr) {
+            messages->push_back("Could not render all trajectory video frames.");
+        }
+        frame_dir.removeRecursively();
+        return false;
+    }
+
+    if (QFileInfo::exists(path)) {
+        QFile::remove(path);
+    }
+
+    QStringList args;
+    args << "-y";
+    args << "-framerate" << "30";
+    args << "-i" << frame_dir.filePath("frame_%04d.png");
+    args << "-pix_fmt" << "yuv420p";
+    args << "-vf" << "scale=trunc(iw/2)*2:trunc(ih/2)*2";
+    args << path;
+
+    QProcess process;
+    process.setProgram(ffmpeg);
+    process.setArguments(args);
+    process.setProcessChannelMode(QProcess::MergedChannels);
+    process.start();
+
+    if (!process.waitForStarted(5000)) {
+        if (messages != nullptr) {
+            messages->push_back("Could not start ffmpeg.");
+        }
+        return false;
+    }
+
+    process.waitForFinished(-1);
+    const QString log = QString::fromUtf8(process.readAllStandardOutput());
+
+    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+        if (messages != nullptr) {
+            messages->push_back("ffmpeg failed:\n" + log.right(2500));
+            messages->push_back("Frames were left at: " + frame_dir_path);
+        }
+        return false;
+    }
+
+    frame_dir.removeRecursively();
+
+    if (messages != nullptr) {
+        messages->push_back("Trajectory MP4 exported to: " + path);
+    }
+
+    return true;
+}
+
+void MainWindow::exportAllArtifacts()
+{
+    if (!ensureRunLoaded()) {
+        return;
+    }
+
+    const QString export_root = projectRootDir().filePath("exports");
+    QDir().mkpath(export_root);
+
+    const QString base_dir = QFileDialog::getExistingDirectory(
+        this,
+        "Choose export destination",
+        export_root
+    );
+
+    if (base_dir.isEmpty()) {
+        return;
+    }
+
+    const QString export_dir = QDir(base_dir).filePath(defaultExportBaseName());
+    QStringList messages;
+
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    status_label_->setText("Exporting all artifacts...");
+    QApplication::processEvents();
+
+    bool ok = true;
+    ok = exportRunAssets(export_dir, &messages) && ok;
+    ok = exportPlotPngsTo(QDir(export_dir).filePath("plots_png"), &messages) && ok;
+    ok = exportStatisticsPdfTo(QDir(export_dir).filePath("statistics_summary.pdf"), &messages) && ok;
+    ok = exportTrajectoryVideoTo(QDir(export_dir).filePath("trajectory_lambda_sweep.mp4"), &messages) && ok;
+
+    QApplication::restoreOverrideCursor();
+    status_label_->setText(ok ? "Export complete: " + export_dir : "Export finished with warnings");
+
+    QMessageBox::information(
+        this,
+        ok ? "Export complete" : "Export finished with warnings",
+        messages.join("\n")
+    );
+}
+
+void MainWindow::exportCsvAndModels()
+{
+    if (!ensureRunLoaded()) {
+        return;
+    }
+
+    const QString export_root = projectRootDir().filePath("exports");
+    QDir().mkpath(export_root);
+
+    const QString directory = QFileDialog::getExistingDirectory(
+        this,
+        "Choose CSV and 3D export directory",
+        export_root
+    );
+
+    if (directory.isEmpty()) {
+        return;
+    }
+
+    QStringList messages;
+    const bool ok = exportRunAssets(directory, &messages);
+    status_label_->setText(ok ? "CSV and 3D export complete" : "CSV and 3D export had warnings");
+
+    QMessageBox::information(
+        this,
+        ok ? "Export complete" : "Export finished with warnings",
+        messages.join("\n")
+    );
+}
+
+void MainWindow::exportPlotsPng()
+{
+    if (!ensureRunLoaded()) {
+        return;
+    }
+
+    const QString export_root = projectRootDir().filePath("exports");
+    QDir().mkpath(export_root);
+
+    const QString directory = QFileDialog::getExistingDirectory(
+        this,
+        "Choose PNG plot export directory",
+        export_root
+    );
+
+    if (directory.isEmpty()) {
+        return;
+    }
+
+    QStringList messages;
+    const bool ok = exportPlotPngsTo(directory, &messages);
+    status_label_->setText(ok ? "PNG plot export complete" : "PNG plot export had warnings");
+
+    QMessageBox::information(
+        this,
+        ok ? "Export complete" : "Export finished with warnings",
+        messages.join("\n")
+    );
+}
+
+void MainWindow::exportTrajectoryVideoMp4()
+{
+    if (!ensureRunLoaded()) {
+        return;
+    }
+
+    const QString export_root = projectRootDir().filePath("exports");
+    QDir().mkpath(export_root);
+
+    QString path = QFileDialog::getSaveFileName(
+        this,
+        "Export trajectory lambda sweep video",
+        QDir(export_root).filePath(defaultExportBaseName() + "_trajectory_lambda_sweep.mp4"),
+        "MP4 video (*.mp4)"
+    );
+
+    if (path.isEmpty()) {
+        return;
+    }
+
+    path = withSuffix(path, "mp4");
+
+    QStringList messages;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    status_label_->setText("Exporting MP4 video...");
+    QApplication::processEvents();
+    const bool ok = exportTrajectoryVideoTo(path, &messages);
+    QApplication::restoreOverrideCursor();
+    status_label_->setText(ok ? "MP4 export complete" : "MP4 export failed");
+
+    QMessageBox::information(
+        this,
+        ok ? "Export complete" : "Export failed",
+        messages.join("\n")
+    );
+}
+
+void MainWindow::exportStatisticsPdf()
+{
+    if (!ensureRunLoaded()) {
+        return;
+    }
+
+    const QString export_root = projectRootDir().filePath("exports");
+    QDir().mkpath(export_root);
+
+    QString path = QFileDialog::getSaveFileName(
+        this,
+        "Export statistics PDF",
+        QDir(export_root).filePath(defaultExportBaseName() + "_statistics.pdf"),
+        "PDF document (*.pdf)"
+    );
+
+    if (path.isEmpty()) {
+        return;
+    }
+
+    path = withSuffix(path, "pdf");
+
+    QStringList messages;
+    const bool ok = exportStatisticsPdfTo(path, &messages);
+    status_label_->setText(ok ? "PDF export complete" : "PDF export failed");
+
+    QMessageBox::information(
+        this,
+        ok ? "Export complete" : "Export failed",
+        messages.join("\n")
+    );
+}
+
+void MainWindow::adjustCombinedLayerIndicesAfterRemoval(const int removed_layer)
+{
+    const auto adjust = [removed_layer](int& layer) {
+        if (layer == removed_layer) {
+            layer = -1;
+        } else if (layer > removed_layer) {
+            --layer;
+        }
+    };
+
+    adjust(combined_trajectory_layer_);
+    adjust(combined_caustic_layer_);
+    adjust(combined_lens_layer_);
+    adjust(combined_full_envelope_layer_);
+    adjust(combined_beamline_layer_);
+}
+
+bool MainWindow::buildFullEnvelopePreviewObj(const QString& trajectories_csv,
+                                             const QString& output_obj,
+                                             QString* error) const
+{
+    QFile file(trajectories_csv);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (error != nullptr) {
+            *error = "Could not open trajectories CSV:\n" + trajectories_csv;
+        }
+        return false;
+    }
+
+    struct Sample {
+        double x{0.0};
+        double y{0.0};
+        double z{0.0};
+    };
+
+    std::vector<Sample> samples;
+    samples.reserve(60000);
+
+    QTextStream stream(&file);
+    QStringList header;
+    int x_col = -1;
+    int y_col = -1;
+    int z_col = -1;
+
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine();
+
+        if (line.trimmed().isEmpty() || line.startsWith("#")) {
+            continue;
+        }
+
+        if (header.isEmpty()) {
+            header = splitCsvLine(line);
+            x_col = columnIndex(header, "x_m");
+            y_col = columnIndex(header, "y_m");
+            z_col = columnIndex(header, "z_m");
+            continue;
+        }
+
+        const QStringList cols = splitCsvLine(line);
+
+        if (x_col < 0 || y_col < 0 || z_col < 0 ||
+            x_col >= cols.size() || y_col >= cols.size() || z_col >= cols.size()) {
+            continue;
+        }
+
+        bool ok_x = false;
+        bool ok_y = false;
+        bool ok_z = false;
+        const double x = cols[x_col].toDouble(&ok_x);
+        const double y = cols[y_col].toDouble(&ok_y);
+        const double z = cols[z_col].toDouble(&ok_z);
+
+        if (ok_x && ok_y && ok_z &&
+            std::isfinite(x) && std::isfinite(y) && std::isfinite(z)) {
+            samples.push_back({x, y, z});
+        }
+    }
+
+    if (samples.size() < 16) {
+        if (error != nullptr) {
+            *error = "Not enough trajectory samples to build a full envelope preview.";
+        }
+        return false;
+    }
+
+    std::array<double, 3> min_coord{
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity()
+    };
+    std::array<double, 3> max_coord{
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity()
+    };
+
+    const auto coord = [](const Sample& sample, const int axis) {
+        if (axis == 0) {
+            return sample.x;
+        }
+
+        if (axis == 1) {
+            return sample.y;
+        }
+
+        return sample.z;
+    };
+
+    for (const auto& sample : samples) {
+        min_coord[0] = std::min(min_coord[0], sample.x);
+        min_coord[1] = std::min(min_coord[1], sample.y);
+        min_coord[2] = std::min(min_coord[2], sample.z);
+
+        max_coord[0] = std::max(max_coord[0], sample.x);
+        max_coord[1] = std::max(max_coord[1], sample.y);
+        max_coord[2] = std::max(max_coord[2], sample.z);
+    }
+
+    const std::array<double, 3> span{
+        max_coord[0] - min_coord[0],
+        max_coord[1] - min_coord[1],
+        max_coord[2] - min_coord[2]
+    };
+
+    int longitudinal_axis = 0;
+
+    if (span[1] > span[static_cast<std::size_t>(longitudinal_axis)]) {
+        longitudinal_axis = 1;
+    }
+
+    if (span[2] > span[static_cast<std::size_t>(longitudinal_axis)]) {
+        longitudinal_axis = 2;
+    }
+
+    std::array<int, 2> transverse_axes{0, 1};
+    int transverse_slot = 0;
+
+    for (int axis = 0; axis < 3; ++axis) {
+        if (axis != longitudinal_axis) {
+            transverse_axes[static_cast<std::size_t>(transverse_slot)] = axis;
+            ++transverse_slot;
+        }
+    }
+
+    const double longitudinal_min = min_coord[static_cast<std::size_t>(longitudinal_axis)];
+    const double longitudinal_span = span[static_cast<std::size_t>(longitudinal_axis)];
+
+    if (longitudinal_span <= 1.0e-15) {
+        if (error != nullptr) {
+            *error = "Trajectory preview has no usable longitudinal range for a full envelope preview.";
+        }
+        return false;
+    }
+
+    constexpr int angle_count = 48;
+    constexpr double pi = 3.141592653589793238462643383279502884;
+    const int bin_count = std::clamp(
+        static_cast<int>(samples.size() / 500),
+        24,
+        72
+    );
+
+    struct Bin {
+        int count{0};
+        double sum_longitudinal{0.0};
+        double sum_a{0.0};
+        double sum_b{0.0};
+        double center_longitudinal{0.0};
+        double center_a{0.0};
+        double center_b{0.0};
+        double max_radius{0.0};
+        double fallback_radius{0.0};
+        std::vector<std::vector<double>> angular_radii{};
+        std::vector<double> angular_radius{};
+    };
+
+    std::vector<Bin> bins(static_cast<std::size_t>(bin_count));
+
+    for (auto& bin : bins) {
+        bin.angular_radii.resize(angle_count);
+        bin.angular_radius.assign(angle_count, 0.0);
+    }
+
+    const auto binIndexForLongitudinal = [&](const double longitudinal) {
+        const double t =
+            std::clamp((longitudinal - longitudinal_min) / longitudinal_span, 0.0, 1.0);
+        return std::clamp(
+            static_cast<int>(std::floor(t * static_cast<double>(bin_count - 1))),
+            0,
+            bin_count - 1
+        );
+    };
+
+    for (const auto& sample : samples) {
+        const double longitudinal = coord(sample, longitudinal_axis);
+        const double a = coord(sample, transverse_axes[0]);
+        const double b = coord(sample, transverse_axes[1]);
+
+        Bin& bin =
+            bins[static_cast<std::size_t>(binIndexForLongitudinal(longitudinal))];
+        ++bin.count;
+        bin.sum_longitudinal += longitudinal;
+        bin.sum_a += a;
+        bin.sum_b += b;
+    }
+
+    for (auto& bin : bins) {
+        if (bin.count <= 0) {
+            continue;
+        }
+
+        const double inv_count = 1.0 / static_cast<double>(bin.count);
+        bin.center_longitudinal = bin.sum_longitudinal * inv_count;
+        bin.center_a = bin.sum_a * inv_count;
+        bin.center_b = bin.sum_b * inv_count;
+    }
+
+    for (const auto& sample : samples) {
+        const double longitudinal = coord(sample, longitudinal_axis);
+        const double a = coord(sample, transverse_axes[0]);
+        const double b = coord(sample, transverse_axes[1]);
+
+        Bin& bin =
+            bins[static_cast<std::size_t>(binIndexForLongitudinal(longitudinal))];
+
+        if (bin.count <= 0) {
+            continue;
+        }
+
+        const double da = a - bin.center_a;
+        const double db = b - bin.center_b;
+        const double radius = std::hypot(da, db);
+        double angle = std::atan2(db, da);
+
+        if (angle < 0.0) {
+            angle += 2.0 * pi;
+        }
+
+        const int angle_index = std::clamp(
+            static_cast<int>(std::floor(angle * static_cast<double>(angle_count) / (2.0 * pi))),
+            0,
+            angle_count - 1
+        );
+
+        bin.angular_radii[static_cast<std::size_t>(angle_index)].push_back(radius);
+        bin.max_radius = std::max(bin.max_radius, radius);
+    }
+
+    const auto quantileRadius = [](std::vector<double>& values, const double q) {
+        if (values.empty()) {
+            return 0.0;
+        }
+
+        std::sort(values.begin(), values.end());
+        const std::size_t index =
+            std::min<std::size_t>(
+                values.size() - 1,
+                static_cast<std::size_t>(
+                    std::floor(q * static_cast<double>(values.size() - 1))
+                )
+            );
+        return values[index];
+    };
+
+    for (auto& bin : bins) {
+        if (bin.count <= 0) {
+            continue;
+        }
+
+        std::vector<double> all_radii;
+
+        for (const auto& sector : bin.angular_radii) {
+            all_radii.insert(all_radii.end(), sector.begin(), sector.end());
+        }
+
+        bin.fallback_radius = quantileRadius(all_radii, 0.90);
+
+        if (bin.fallback_radius <= 0.0) {
+            bin.fallback_radius = bin.max_radius;
+        }
+
+        for (int angle_index = 0; angle_index < angle_count; ++angle_index) {
+            auto& sector = bin.angular_radii[static_cast<std::size_t>(angle_index)];
+            double radius = quantileRadius(sector, 0.90);
+
+            if (radius <= 0.0) {
+                radius = bin.fallback_radius;
+            }
+
+            bin.angular_radius[static_cast<std::size_t>(angle_index)] = radius;
+        }
+
+        for (int smooth_pass = 0; smooth_pass < 2; ++smooth_pass) {
+            std::vector<double> smoothed = bin.angular_radius;
+
+            for (int angle_index = 0; angle_index < angle_count; ++angle_index) {
+                const int previous = (angle_index + angle_count - 1) % angle_count;
+                const int next = (angle_index + 1) % angle_count;
+                smoothed[static_cast<std::size_t>(angle_index)] =
+                    0.25 * bin.angular_radius[static_cast<std::size_t>(previous)] +
+                    0.50 * bin.angular_radius[static_cast<std::size_t>(angle_index)] +
+                    0.25 * bin.angular_radius[static_cast<std::size_t>(next)];
+            }
+
+            bin.angular_radius = std::move(smoothed);
+        }
+    }
+
+    std::vector<int> valid_bins;
+
+    for (int i = 0; i < bin_count; ++i) {
+        const auto& bin = bins[static_cast<std::size_t>(i)];
+
+        if (bin.count >= 6 && bin.fallback_radius > 0.0) {
+            valid_bins.push_back(i);
+        }
+    }
+
+    if (valid_bins.size() < 2) {
+        if (error != nullptr) {
+            *error = "The trajectory preview did not produce enough valid envelope slices.";
+        }
+        return false;
+    }
+
+    QFileInfo output_info(output_obj);
+
+    if (!QDir().mkpath(output_info.absolutePath())) {
+        if (error != nullptr) {
+            *error = "Could not create geometry directory:\n" + output_info.absolutePath();
+        }
+        return false;
+    }
+
+    std::ofstream output(output_obj.toStdString());
+
+    if (!output) {
+        if (error != nullptr) {
+            *error = "Could not write OBJ:\n" + output_obj;
+        }
+        return false;
+    }
+
+    output << "# BeamLabStudio full beam envelope preview\n";
+    output << "# Generated from trajectories_preview.csv; use as a visual proxy only.\n";
+    output << "# longitudinal_axis: " << (longitudinal_axis == 0 ? "x" : longitudinal_axis == 1 ? "y" : "z") << "\n";
+    output << "# vertices: x_m y_m z_m\n";
+
+    const auto makeWorldPoint = [&](const double longitudinal,
+                                    const double a,
+                                    const double b) {
+        std::array<double, 3> values{0.0, 0.0, 0.0};
+        values[static_cast<std::size_t>(longitudinal_axis)] = longitudinal;
+        values[static_cast<std::size_t>(transverse_axes[0])] = a;
+        values[static_cast<std::size_t>(transverse_axes[1])] = b;
+        return Sample{values[0], values[1], values[2]};
+    };
+
+    for (const int bin_index : valid_bins) {
+        const Bin& bin = bins[static_cast<std::size_t>(bin_index)];
+
+        for (int angle_index = 0; angle_index < angle_count; ++angle_index) {
+            const double angle =
+                2.0 * pi * static_cast<double>(angle_index) /
+                static_cast<double>(angle_count);
+            double radius = bin.angular_radius[static_cast<std::size_t>(angle_index)];
+
+            if (radius <= 0.0) {
+                radius = bin.fallback_radius;
+            }
+
+            const Sample world =
+                makeWorldPoint(
+                    bin.center_longitudinal,
+                    bin.center_a + radius * std::cos(angle),
+                    bin.center_b + radius * std::sin(angle)
+                );
+
+            output << "v "
+                   << world.x << ' '
+                   << world.y << ' '
+                   << world.z << '\n';
+        }
+    }
+
+    for (std::size_t ring = 1; ring < valid_bins.size(); ++ring) {
+        const int previous_base =
+            static_cast<int>((ring - 1) * static_cast<std::size_t>(angle_count)) + 1;
+        const int current_base =
+            static_cast<int>(ring * static_cast<std::size_t>(angle_count)) + 1;
+
+        for (int angle_index = 0; angle_index < angle_count; ++angle_index) {
+            const int next = (angle_index + 1) % angle_count;
+            output << "f "
+                   << previous_base + angle_index << ' '
+                   << previous_base + next << ' '
+                   << current_base + next << ' '
+                   << current_base + angle_index << '\n';
+        }
+    }
+
+    return true;
+}
+
+void MainWindow::buildFullEnvelopePreview()
+{
+    if (!ensureRunLoaded()) {
+        return;
+    }
+
+    if (current_trajectories_csv_.isEmpty() ||
+        !QFileInfo::exists(current_trajectories_csv_)) {
+        QMessageBox::warning(
+            this,
+            "Full beam envelope",
+            "The current run does not have a trajectories_preview.csv file."
+        );
+        return;
+    }
+
+    const QString output_obj =
+        QDir(current_run_dir_).filePath("geometry/full_beam_envelope_preview.obj");
+
+    QString error;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const bool ok = buildFullEnvelopePreviewObj(
+        current_trajectories_csv_,
+        output_obj,
+        &error
+    );
+    QApplication::restoreOverrideCursor();
+
+    if (!ok) {
+        QMessageBox::warning(this, "Full beam envelope", error);
+        return;
+    }
+
+    if (combined_full_envelope_layer_ >= 0 &&
+        combined_scene_viewer_->removeLayer(combined_full_envelope_layer_)) {
+        adjustCombinedLayerIndicesAfterRemoval(combined_full_envelope_layer_);
+    }
+
+    combined_full_envelope_layer_ = combined_scene_viewer_->addObjLayer(
+        "Full beam envelope",
+        output_obj,
+        QColor(180, 140, 255)
+    );
+
+    if (combined_full_envelope_layer_ < 0) {
+        QMessageBox::warning(
+            this,
+            "Full beam envelope",
+            "The full envelope OBJ was written but could not be loaded."
+        );
+        return;
+    }
+
+    current_full_envelope_obj_ = output_obj;
+    updateLayerSwatch(full_envelope_color_swatch_, QColor(180, 140, 255));
+    combined_scene_viewer_->setLayerOpacity(combined_full_envelope_layer_, 0.25);
+    combined_scene_viewer_->setLayerLineWidth(combined_full_envelope_layer_, 0.9);
+
+    QFile manifest_file(current_manifest_path_);
+
+    if (manifest_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QJsonParseError parse_error{};
+        QJsonDocument document =
+            QJsonDocument::fromJson(manifest_file.readAll(), &parse_error);
+        manifest_file.close();
+
+        if (parse_error.error == QJsonParseError::NoError && document.isObject()) {
+            QJsonObject root = document.object();
+            QJsonObject files = root.value("files").toObject();
+            files.insert(
+                "full_beam_envelope_preview_obj",
+                manifestFriendlyPath(output_obj)
+            );
+            root.insert("files", files);
+
+            QJsonObject layer_semantics = root.value("layer_semantics").toObject();
+            QJsonObject full_envelope = layer_semantics.value("full_beam_envelope_obj").toObject();
+            full_envelope.insert("display_name", "Full beam envelope");
+            full_envelope.insert("status", "available_preview");
+            full_envelope.insert("scope", "preview_axial_range");
+            full_envelope.insert(
+                "description",
+                "Preview envelope reconstructed from the loaded trajectory sample."
+            );
+            layer_semantics.insert("full_beam_envelope_obj", full_envelope);
+            root.insert("layer_semantics", layer_semantics);
+
+            if (manifest_file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+                manifest_file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+                manifest_file.close();
+            }
+        }
+    }
+
+    {
+        const QSignalBlocker blocker(combined_full_envelope_check_);
+        combined_full_envelope_check_->setEnabled(true);
+        combined_full_envelope_check_->setChecked(true);
+    }
+
+    if (beam_display_mode_ != nullptr) {
+        beam_display_mode_->setCurrentIndex(2);
+    }
+
+    updateCombinedDisplayMode();
+    status_label_->setText("Full beam envelope preview built: " + output_obj);
+}
+
+void MainWindow::importPhysicalBeamlineGeometry()
+{
+    const QString initial_dir =
+        current_run_dir_.isEmpty()
+            ? projectRootDir().absolutePath()
+            : current_run_dir_;
+
+    const QString path = QFileDialog::getOpenFileName(
+        this,
+        "Import physical beamline OBJ",
+        initial_dir,
+        "OBJ geometry (*.obj);;All files (*)"
+    );
+
+    if (path.isEmpty()) {
+        return;
+    }
+
+    if (combined_beamline_layer_ >= 0 &&
+        combined_scene_viewer_->removeLayer(combined_beamline_layer_)) {
+        adjustCombinedLayerIndicesAfterRemoval(combined_beamline_layer_);
+    }
+
+    combined_beamline_layer_ = combined_scene_viewer_->addObjLayer(
+        "Physical beamline geometry",
+        path,
+        QColor(205, 214, 226)
+    );
+
+    if (combined_beamline_layer_ < 0) {
+        QMessageBox::warning(
+            this,
+            "Physical beamline geometry",
+            "Could not load the selected OBJ file."
+        );
+        return;
+    }
+
+    current_beamline_obj_ = path;
+    updateLayerSwatch(beamline_color_swatch_, QColor(205, 214, 226));
+    combined_scene_viewer_->setLayerOpacity(combined_beamline_layer_, 0.55);
+    combined_scene_viewer_->setLayerLineWidth(combined_beamline_layer_, 1.0);
+
+    {
+        const QSignalBlocker blocker(combined_beamline_check_);
+        combined_beamline_check_->setEnabled(true);
+        combined_beamline_check_->setChecked(true);
+    }
+
+    clear_beamline_button_->setEnabled(true);
+
+    if (beam_display_mode_ != nullptr) {
+        beam_display_mode_->setCurrentIndex(2);
+    }
+
+    updateCombinedDisplayMode();
+    status_label_->setText("Imported physical beamline geometry: " + path);
+}
+
+void MainWindow::clearPhysicalBeamlineGeometry()
+{
+    if (combined_beamline_layer_ >= 0 &&
+        combined_scene_viewer_->removeLayer(combined_beamline_layer_)) {
+        adjustCombinedLayerIndicesAfterRemoval(combined_beamline_layer_);
+    }
+
+    combined_beamline_layer_ = -1;
+    current_beamline_obj_.clear();
+
+    {
+        const QSignalBlocker blocker(combined_beamline_check_);
+        combined_beamline_check_->setEnabled(false);
+        combined_beamline_check_->setChecked(false);
+    }
+
+    clear_beamline_button_->setEnabled(false);
+    updateCombinedDisplayMode();
+    status_label_->setText("Physical beamline geometry layer cleared");
+}
+
+void MainWindow::loadTablePreview(const QString& path,
+                                  QTableWidget* table,
+                                  const int max_rows)
+{
+    table->clear();
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        table->setRowCount(0);
+        table->setColumnCount(1);
+        table->setHorizontalHeaderLabels({"Could not open: " + path});
+        return;
+    }
+
+    QTextStream stream(&file);
+
+    QStringList header;
+    std::vector<QStringList> rows;
+
+    while (!stream.atEnd()) {
+        const auto line = stream.readLine();
+
+        if (line.trimmed().isEmpty() || line.startsWith("#")) {
+            continue;
+        }
+
+        if (header.isEmpty()) {
+            header = splitCsvLine(line);
+            continue;
+        }
+
+        rows.push_back(splitCsvLine(line));
+
+        if (static_cast<int>(rows.size()) >= max_rows) {
+            break;
+        }
+    }
+
+    table->setColumnCount(static_cast<int>(header.size()));
+    table->setRowCount(static_cast<int>(rows.size()));
+    QStringList display_header;
+    display_header.reserve(header.size());
+
+    for (const auto& column : header) {
+        display_header.push_back(axisPresentationForColumn(column.trimmed()).label);
+    }
+
+    table->setHorizontalHeaderLabels(display_header);
+
+    for (int r = 0; r < static_cast<int>(rows.size()); ++r) {
+        const auto& row = rows[static_cast<std::size_t>(r)];
+
+        for (int c = 0; c < header.size(); ++c) {
+            const auto raw_value = c < row.size() ? row[c] : QString{};
+            const AxisPresentation axis =
+                c < header.size()
+                    ? axisPresentationForColumn(header[c].trimmed())
+                    : AxisPresentation{};
+            QString display_value = raw_value;
+
+            if (axis.scale != 1.0) {
+                bool ok = false;
+                const double numeric = raw_value.toDouble(&ok);
+
+                if (ok && std::isfinite(numeric)) {
+                    display_value = QString::number(numeric * axis.scale, 'g', 8);
+                }
+            }
+
+            table->setItem(r, c, new QTableWidgetItem(display_value));
+        }
+    }
+
+    table->resizeColumnsToContents();
+}
+
+void MainWindow::plotCsv2D(const QString& path,
+                           const QString& x_column,
+                           const QString& y_column,
+                           const QString& group_column,
+                           QGraphicsScene* scene,
+                           const QString& title,
+                           const bool connect_groups)
+{
+    scene->clear();
+    scene->setBackgroundBrush(QColor(13, 16, 22));
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        auto* error_item = scene->addText("Could not open: " + path);
+        error_item->setDefaultTextColor(QColor(255, 150, 150));
+        error_item->setPos(24, 24);
+        return;
+    }
+
+    QTextStream stream(&file);
+
+    QStringList header;
+    std::vector<PlotPoint> points;
+    std::map<int, std::vector<PlotPoint>> grouped_points;
+    const AxisPresentation x_axis = axisPresentationForColumn(x_column);
+    const AxisPresentation y_axis = axisPresentationForColumn(y_column);
+
+    int x_col = -1;
+    int y_col = -1;
+    int group_col = -1;
+
+    while (!stream.atEnd()) {
+        const auto line = stream.readLine();
+
+        if (line.trimmed().isEmpty() || line.startsWith("#")) {
+            continue;
+        }
+
+        if (header.isEmpty()) {
+            header = splitCsvLine(line);
+            x_col = columnIndex(header, x_column);
+            y_col = columnIndex(header, y_column);
+
+            if (!group_column.isEmpty()) {
+                group_col = columnIndex(header, group_column);
+            }
+
+            continue;
+        }
+
+        const auto cols = splitCsvLine(line);
+
+        if (x_col < 0 || y_col < 0 ||
+            x_col >= cols.size() || y_col >= cols.size()) {
+            continue;
+        }
+
+        bool ok_x = false;
+        bool ok_y = false;
+
+        const double x = cols[x_col].toDouble(&ok_x);
+        const double y = cols[y_col].toDouble(&ok_y);
+
+        if (!ok_x || !ok_y) {
+            continue;
+        }
+
+        PlotPoint point{x * x_axis.scale, y * y_axis.scale};
+        points.push_back(point);
+
+        if (group_col >= 0 && group_col < cols.size()) {
+            bool ok_group = false;
+            const int group = cols[group_col].toInt(&ok_group);
+
+            if (ok_group) {
+                grouped_points[group].push_back(point);
+            }
+        }
+    }
+
+    if (points.empty()) {
+        auto* error_item = scene->addText("No points found in: " + path);
+        error_item->setDefaultTextColor(QColor(255, 220, 150));
+        error_item->setPos(24, 24);
+        return;
+    }
+
+    double min_x = std::numeric_limits<double>::infinity();
+    double max_x = -std::numeric_limits<double>::infinity();
+    double min_y = std::numeric_limits<double>::infinity();
+    double max_y = -std::numeric_limits<double>::infinity();
+
+    for (const auto& point : points) {
+        min_x = std::min(min_x, point.x);
+        max_x = std::max(max_x, point.x);
+        min_y = std::min(min_y, point.y);
+        max_y = std::max(max_y, point.y);
+    }
+
+    const double width = std::max(1.0e-12, max_x - min_x);
+    const double height = std::max(1.0e-12, max_y - min_y);
+
+    constexpr double canvas_w = 950.0;
+    constexpr double canvas_h = 650.0;
+    constexpr double left = 68.0;
+    constexpr double right = 18.0;
+    constexpr double top = 50.0;
+    constexpr double bottom = 54.0;
+
+    const double plot_w = canvas_w - left - right;
+    const double plot_h = canvas_h - top - bottom;
+    const double scale_x = plot_w / width;
+    const double scale_y = plot_h / height;
+
+    const bool keep_aspect =
+        title.contains("Focal", Qt::CaseInsensitive) ||
+        title.contains("Envelope", Qt::CaseInsensitive);
+
+    const double sx_scale = keep_aspect ? std::min(scale_x, scale_y) : scale_x;
+    const double sy_scale = keep_aspect ? std::min(scale_x, scale_y) : scale_y;
+    const double data_w = width * sx_scale;
+    const double data_h = height * sy_scale;
+    const double data_left = left + 0.5 * (plot_w - data_w);
+    const double data_bottom = top + 0.5 * (plot_h - data_h) + data_h;
+
+    const auto mapPoint = [&](const PlotPoint& point) {
+        const double sx = data_left + (point.x - min_x) * sx_scale;
+        const double sy = data_bottom - (point.y - min_y) * sy_scale;
+        return QPointF(sx, sy);
+    };
+
+    scene->setSceneRect(0.0, 0.0, canvas_w, canvas_h);
+    auto* title_item = scene->addText(QString("%1 | points: %2").arg(title).arg(points.size()));
+    title_item->setDefaultTextColor(QColor(232, 238, 248));
+    title_item->setScale(1.18);
+    title_item->setPos(left, 12.0);
+
+    QPen frame_pen(QColor(92, 108, 135));
+    frame_pen.setWidthF(1.0);
+    scene->addRect(
+        left,
+        top,
+        plot_w,
+        plot_h,
+        frame_pen,
+        QBrush(QColor(16, 21, 30))
+    );
+
+    QPen grid_pen(QColor(45, 55, 74));
+    grid_pen.setWidthF(0.75);
+
+    for (int i = 0; i <= 5; ++i) {
+        const double gx = left + plot_w * static_cast<double>(i) / 5.0;
+        const double gy = top + plot_h * static_cast<double>(i) / 5.0;
+
+        scene->addLine(gx, top, gx, top + plot_h, grid_pen);
+        scene->addLine(left, gy, left + plot_w, gy, grid_pen);
+
+        const double x_value = min_x + (max_x - min_x) * static_cast<double>(i) / 5.0;
+        const double y_value = max_y - (max_y - min_y) * static_cast<double>(i) / 5.0;
+
+        auto* x_tick = scene->addText(formatPlotTick(x_value));
+        x_tick->setDefaultTextColor(QColor(165, 180, 204));
+        x_tick->setScale(0.72);
+        x_tick->setPos(gx - 28.0, top + plot_h + 8.0);
+
+        auto* y_tick = scene->addText(formatPlotTick(y_value));
+        y_tick->setDefaultTextColor(QColor(165, 180, 204));
+        y_tick->setScale(0.72);
+        y_tick->setPos(14.0, gy - 9.0);
+    }
+
+    QPen axes_pen(QColor(120, 135, 160));
+    axes_pen.setWidthF(1.1);
+
+    scene->addLine(left, top + plot_h, left + plot_w, top + plot_h, axes_pen);
+    scene->addLine(left, top, left, top + plot_h, axes_pen);
+
+    auto* x_label = scene->addText(x_axis.label);
+    x_label->setDefaultTextColor(QColor(232, 238, 248));
+    x_label->setScale(0.88);
+    x_label->setPos(left + plot_w - 170.0, canvas_h - 34.0);
+
+    auto* y_label = scene->addText(y_axis.label);
+    y_label->setDefaultTextColor(QColor(232, 238, 248));
+    y_label->setScale(0.88);
+    y_label->setPos(8.0, top - 28.0);
+
+    if (connect_groups && !grouped_points.empty()) {
+        const bool close_groups = title.contains("Envelope", Qt::CaseInsensitive);
+        QPen line_pen(
+            close_groups
+                ? QColor(125, 210, 255, 145)
+                : QColor(120, 255, 210, 120)
+        );
+        line_pen.setWidthF(1.35);
+
+        for (const auto& [group, group_points] : grouped_points) {
+            if (group_points.size() < 2) {
+                continue;
+            }
+
+            QPainterPath path_item;
+            path_item.moveTo(mapPoint(group_points.front()));
+
+            for (std::size_t i = 1; i < group_points.size(); ++i) {
+                path_item.lineTo(mapPoint(group_points[i]));
+            }
+
+            if (close_groups) {
+                path_item.lineTo(mapPoint(group_points.front()));
+            }
+
+            scene->addPath(path_item, line_pen);
+        }
+    } else {
+        const std::size_t stride =
+            points.size() > 50000 ? points.size() / 50000 : 1;
+
+        for (std::size_t i = 0; i < points.size(); i += stride) {
+            const auto p = mapPoint(points[i]);
+            scene->addEllipse(
+                p.x() - 1.7,
+                p.y() - 1.7,
+                3.2,
+                3.2,
+                QPen(QColor(185, 235, 255, 190)),
+                QBrush(QColor(125, 210, 255, 150))
+            );
+        }
+    }
+
+    const QRectF complete_bounds =
+        scene->itemsBoundingRect().adjusted(-20.0, -20.0, 20.0, 20.0);
+
+    if (complete_bounds.isValid() && !complete_bounds.isEmpty()) {
+        scene->setSceneRect(complete_bounds);
+    }
+
+    QGraphicsView* target_view = nullptr;
+
+    if (scene == trajectory_scene_) {
+        target_view = trajectory_view_;
+    } else if (scene == focal_slice_scene_) {
+        target_view = focal_slice_view_;
+    } else if (scene == envelope_scene_) {
+        target_view = envelope_view_;
+    }
+
+    if (target_view != nullptr) {
+        fitSceneInView(target_view, scene);
+
+        QTimer::singleShot(0, target_view, [target_view, scene]() {
+            fitSceneInView(target_view, scene);
+        });
+
+        QTimer::singleShot(120, target_view, [target_view, scene]() {
+            fitSceneInView(target_view, scene);
+        });
+    }
+}
+
+
+} // namespace beamlab::ui
+
+
+void beamlab::ui::MainWindow::openDataFileAndRun()
+{
+    if (running_process_ != nullptr) {
+        QMessageBox::information(
+            this,
+            "Analysis already running",
+            "Wait for the current analysis to finish before starting another one."
+        );
+        return;
+    }
+
+    const QDir root_dir = projectRootDir();
+    const QString default_dir =
+        QFileInfo::exists(root_dir.filePath("examples/datasets"))
+            ? root_dir.filePath("examples/datasets")
+            : root_dir.absolutePath();
+    const QString initial_dir =
+        last_open_dir_.isEmpty() || !QFileInfo::exists(last_open_dir_)
+            ? default_dir
+            : last_open_dir_;
+
+    const QString input_path = QFileDialog::getOpenFileName(
+        this,
+        "Open BeamLabStudio input data",
+        initial_dir,
+        "Data files (*.root *.csv *.txt *.dat);;ROOT files (*.root);;CSV files (*.csv);;All files (*)"
+    );
+
+    if (input_path.isEmpty()) {
+        return;
+    }
+
+    last_open_dir_ = QFileInfo(input_path).absolutePath();
+    openDataFileAndRunWithPath(input_path);
+}
+
+void beamlab::ui::MainWindow::openDataFileAndRunWithPath(const QString& input_path)
+{
+    if (running_process_ != nullptr) {
+        QMessageBox::information(
+            this,
+            "Analysis already running",
+            "Wait for the current analysis to finish before starting another one."
+        );
+        return;
+    }
+
+    const QDir root_dir = projectRootDir();
+    const QFileInfo input_info(input_path);
+
+    if (!input_info.exists()) {
+        QMessageBox::critical(
+            this,
+            "Input file not found",
+            "The selected input file does not exist."
+        );
+        return;
+    }
+
+    last_open_dir_ = input_info.absolutePath();
+
+    const QString timestamp =
+        QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+
+    const QString safe_base =
+        sanitizeRunBase(input_info.completeBaseName());
+
+    const QString output_dir =
+        root_dir.filePath("outputs/ui_run_" + safe_base + "_" + timestamp);
+
+    const QString runner =
+        root_dir.filePath("scripts/run_beamlab_full.sh");
+
+    if (!QFileInfo::exists(runner)) {
+        QMessageBox::critical(
+            this,
+            "Runner script not found",
+            "Missing script:\n" + runner
+        );
+        return;
+    }
+
+    QStringList args;
+    args << input_path;
+    args << output_dir;
+    args += defaultAnalysisArguments(input_info);
+
+    showWorkspace();
+
+    if (analysis_log_ != nullptr) {
+        analysis_log_->clear();
+        analysis_log_->appendPlainText("Starting BeamLabStudio analysis");
+        analysis_log_->appendPlainText("Input: " + input_path);
+        analysis_log_->appendPlainText("Output: " + output_dir);
+        analysis_log_->appendPlainText("");
+    }
+
+    status_label_->setText("Running analysis: " + input_info.fileName());
+
+    running_process_ = new QProcess(this);
+    running_output_dir_ = output_dir;
+    running_input_name_ = input_info.fileName();
+
+    running_process_->setProgram(runner);
+    running_process_->setArguments(args);
+    running_process_->setWorkingDirectory(root_dir.absolutePath());
+    running_process_->setProcessChannelMode(QProcess::MergedChannels);
+
+    connect(running_process_, &QProcess::readyReadStandardOutput, this, [this]() {
+        if (running_process_ == nullptr || analysis_log_ == nullptr) {
+            return;
+        }
+
+        const QString chunk =
+            QString::fromUtf8(running_process_->readAllStandardOutput()).trimmed();
+
+        if (!chunk.isEmpty()) {
+            analysis_log_->appendPlainText(chunk);
+        }
+    });
+
+    connect(
+        running_process_,
+        &QProcess::finished,
+        this,
+        [this](const int exit_code, const QProcess::ExitStatus status) {
+            onAnalysisFinished(exit_code, status);
+        }
+    );
+
+    setAnalysisRunning(true);
+    running_process_->start();
+
+    if (!running_process_->waitForStarted(5000)) {
+        const QString error = running_process_->errorString();
+
+        if (analysis_log_ != nullptr && !error.isEmpty()) {
+            analysis_log_->appendPlainText("Failed to start analysis: " + error);
+        }
+
+        QProcess* failed_process = running_process_;
+        running_process_ = nullptr;
+        running_output_dir_.clear();
+        running_input_name_.clear();
+        failed_process->deleteLater();
+        setAnalysisRunning(false);
+
+        QMessageBox::critical(
+            this,
+            "Analysis failed to start",
+            "Could not start:\n" + runner + "\n\n" + error
+        );
+        status_label_->setText("Analysis failed to start");
+        return;
+    }
+}
+
+void beamlab::ui::MainWindow::onAnalysisFinished(
+    const int exit_code,
+    const QProcess::ExitStatus status)
+{
+    if (running_process_ == nullptr) {
+        return;
+    }
+
+    if (analysis_log_ != nullptr) {
+        const QString chunk =
+            QString::fromUtf8(running_process_->readAllStandardOutput()).trimmed();
+
+        if (!chunk.isEmpty()) {
+            analysis_log_->appendPlainText(chunk);
+        }
+    }
+
+    const QString output_dir = running_output_dir_;
+    const QString input_name = running_input_name_;
+    const QString log =
+        analysis_log_ != nullptr ? analysis_log_->toPlainText() : QString();
+
+    QProcess* finished_process = running_process_;
+    running_process_ = nullptr;
+    running_output_dir_.clear();
+    running_input_name_.clear();
+    finished_process->deleteLater();
+    setAnalysisRunning(false);
+
+    if (status != QProcess::NormalExit || exit_code != 0) {
+        QMessageBox::critical(
+            this,
+            "Analysis failed",
+            "BeamLabStudio analysis failed. Last output:\n\n" + log.right(5000)
+        );
+        status_label_->setText("Analysis failed: " + input_name);
+        return;
+    }
+
+    const QString manifest_path =
+        QDir(output_dir).filePath("visualization/visualization_manifest.json");
+
+    if (!QFileInfo::exists(manifest_path)) {
+        QMessageBox::critical(
+            this,
+            "Manifest not generated",
+            "The analysis finished, but no visualization manifest was found at:\n" +
+                manifest_path +
+                "\n\nLast output:\n\n" +
+                log.right(5000)
+        );
+        status_label_->setText("Analysis finished without a manifest");
+        return;
+    }
+
+    loadManifest(manifest_path);
+
+    QMessageBox::information(
+        this,
+        "Analysis complete",
+        "Analysis finished successfully.\n\nLoaded manifest:\n" + manifest_path
+    );
+}

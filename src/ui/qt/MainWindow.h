@@ -1,0 +1,210 @@
+#pragma once
+
+#include <QMainWindow>
+#include <QProcess>
+#include <QString>
+
+#include <vector>
+
+class QAction;
+class QColor;
+class QCloseEvent;
+class QGraphicsScene;
+class QComboBox;
+class QGraphicsView;
+class QDragEnterEvent;
+class QDockWidget;
+class QDropEvent;
+class QLabel;
+class QMenu;
+class QPlainTextEdit;
+class QPushButton;
+class QStackedWidget;
+class QTabWidget;
+class QTableWidget;
+class QTimer;
+class QSpinBox;
+class QSlider;
+class QCheckBox;
+class QWidget;
+
+namespace beamlab::ui {
+
+class InteractiveGraphicsView;
+class RunDashboardWidget;
+class StatsDashboardWidget;
+
+class ObjViewerWidget;
+class Scene3DWidget;
+
+class MainWindow final : public QMainWindow {
+public:
+    explicit MainWindow(QWidget* parent = nullptr);
+
+private:
+    void buildUi();
+    void showWelcomeScreen();
+    void showWorkspace();
+    void loadManifest(const QString& path);
+    void updateCombinedDisplayMode();
+    void updateExportControls();
+    void exportAllArtifacts();
+    void exportCsvAndModels();
+    void exportPlotsPng();
+    void exportTrajectoryVideoMp4();
+    void exportStatisticsPdf();
+    void buildFullEnvelopePreview();
+    void importPhysicalBeamlineGeometry();
+    void clearPhysicalBeamlineGeometry();
+
+    void loadTablePreview(const QString& path,
+                          QTableWidget* table,
+                          int max_rows);
+
+    void plotCsv2D(const QString& path,
+                   const QString& x_column,
+                   const QString& y_column,
+                   const QString& group_column,
+                   QGraphicsScene* scene,
+                   const QString& title,
+                   bool connect_groups);
+
+    QString readTextFile(const QString& path) const;
+    QString extractJsonString(const QString& text,
+                              const QString& key) const;
+    QString extractJsonNumber(const QString& text,
+                              const QString& key) const;
+    QString resolvePath(const QString& raw_path,
+                        const QString& manifest_path) const;
+    QString makeDashboardText(const QString& manifest_text,
+                              const QString& trajectories_csv,
+                              const QString& focal_slice_csv,
+                              const QString& envelope_csv,
+                              const QString& caustic_obj,
+                              const QString& lens_obj) const;
+    bool ensureRunLoaded() const;
+    QString defaultExportBaseName() const;
+    bool exportRunAssets(const QString& directory, QStringList* messages) const;
+    bool exportPlotPngsTo(const QString& directory, QStringList* messages) const;
+    bool exportStatisticsPdfTo(const QString& path, QStringList* messages) const;
+    bool exportTrajectoryVideoTo(const QString& path, QStringList* messages);
+    bool buildFullEnvelopePreviewObj(const QString& trajectories_csv,
+                                     const QString& output_obj,
+                                     QString* error) const;
+    void adjustCombinedLayerIndicesAfterRemoval(int removed_layer);
+    void saveSettings();
+    void restoreSettings();
+    void restoreDefaultPanelLayout();
+    void updateRecentMenu();
+    void addToRecentRuns(const QString& manifest_path);
+    void setLayerColorFromSwatch(QPushButton* swatch,
+                                 int layer_index,
+                                 const QColor& initial);
+    void updateLayerSwatch(QPushButton* swatch, const QColor& color);
+    void openDataFileAndRunWithPath(const QString& input_path);
+    void onAnalysisFinished(int exit_code, QProcess::ExitStatus status);
+    void setAnalysisRunning(bool running);
+
+    void closeEvent(QCloseEvent* event) override;
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
+
+    QLabel* status_label_{nullptr};
+    QStackedWidget* central_stack_{nullptr};
+    QTabWidget* tabs_{nullptr};
+    QWidget* trajectory_plot_page_{nullptr};
+    QWidget* focal_slice_plot_page_{nullptr};
+    QWidget* envelope_plot_page_{nullptr};
+
+    RunDashboardWidget* dashboard_{nullptr};
+    StatsDashboardWidget* statistics_dashboard_{nullptr};
+
+    QTableWidget* trajectories_table_{nullptr};
+    QTableWidget* focal_slice_table_{nullptr};
+    QTableWidget* envelope_table_{nullptr};
+
+    InteractiveGraphicsView* trajectory_view_{nullptr};
+    QGraphicsScene* trajectory_scene_{nullptr};
+
+    InteractiveGraphicsView* focal_slice_view_{nullptr};
+    QGraphicsScene* focal_slice_scene_{nullptr};
+
+    InteractiveGraphicsView* envelope_view_{nullptr};
+    QGraphicsScene* envelope_scene_{nullptr};
+
+    QWidget* combined_page_{nullptr};
+    QDockWidget* combined_controls_dock_{nullptr};
+    QDockWidget* analysis_log_dock_{nullptr};
+    Scene3DWidget* combined_scene_viewer_{nullptr};
+
+    QCheckBox* combined_trajectories_check_{nullptr};
+    QCheckBox* combined_caustic_check_{nullptr};
+    QCheckBox* combined_lens_check_{nullptr};
+    QCheckBox* combined_full_envelope_check_{nullptr};
+    QCheckBox* combined_beamline_check_{nullptr};
+    QCheckBox* show_axes_check_{nullptr};
+    QCheckBox* show_measure_guides_check_{nullptr};
+    std::vector<QCheckBox*> obj_axes_checks_{};
+    std::vector<QCheckBox*> obj_measure_guides_checks_{};
+    QComboBox* beam_display_mode_{nullptr};
+    QLabel* trajectory_count_label_{nullptr};
+    QLabel* trajectory_parameter_label_{nullptr};
+    QLabel* trajectory_parameter_value_label_{nullptr};
+
+    QSlider* trajectory_count_slider_{nullptr};
+    QSlider* trajectory_parameter_slider_{nullptr};
+    QSpinBox* trajectory_count_spin_{nullptr};
+
+    QPushButton* build_full_envelope_button_{nullptr};
+    QPushButton* import_beamline_button_{nullptr};
+    QPushButton* clear_beamline_button_{nullptr};
+    QPushButton* trajectory_color_swatch_{nullptr};
+    QPushButton* caustic_color_swatch_{nullptr};
+    QPushButton* lens_color_swatch_{nullptr};
+    QPushButton* full_envelope_color_swatch_{nullptr};
+    QPushButton* beamline_color_swatch_{nullptr};
+
+    int combined_trajectory_layer_{-1};
+    int combined_caustic_layer_{-1};
+    int combined_lens_layer_{-1};
+    int combined_full_envelope_layer_{-1};
+    int combined_beamline_layer_{-1};
+
+    ObjViewerWidget* trajectories_obj_viewer_{nullptr};
+    ObjViewerWidget* caustic_obj_viewer_{nullptr};
+    ObjViewerWidget* lens_obj_viewer_{nullptr};
+
+    QString current_manifest_path_{};
+    QString current_run_dir_{};
+    QString current_trajectories_csv_{};
+    QString current_focal_slice_csv_{};
+    QString current_envelope_csv_{};
+    QString current_trajectories_obj_{};
+    QString current_caustic_obj_{};
+    QString current_lens_obj_{};
+    QString current_full_envelope_obj_{};
+    QString current_beamline_obj_{};
+    QString last_open_dir_{};
+    QString running_output_dir_{};
+    QString running_input_name_{};
+
+    QPushButton* welcome_open_button_{nullptr};
+    QPushButton* open_analyze_button_{nullptr};
+    QPushButton* export_all_button_{nullptr};
+    QPushButton* export_assets_button_{nullptr};
+    QPushButton* export_png_button_{nullptr};
+    QPushButton* export_mp4_button_{nullptr};
+    QPushButton* export_pdf_button_{nullptr};
+    QMenu* recent_menu_{nullptr};
+    QAction* open_analyze_action_{nullptr};
+    QPlainTextEdit* analysis_log_{nullptr};
+    QWidget* log_panel_{nullptr};
+    QPushButton* log_toggle_button_{nullptr};
+    QLabel* analysis_activity_label_{nullptr};
+    QTimer* analysis_activity_timer_{nullptr};
+    QProcess* running_process_{nullptr};
+
+    void openDataFileAndRun();
+};
+
+} // namespace beamlab::ui

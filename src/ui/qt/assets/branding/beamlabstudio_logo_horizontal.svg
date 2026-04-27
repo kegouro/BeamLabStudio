@@ -1,0 +1,24 @@
+<svg width="1280" height="360" viewBox="0 0 1280 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="360" rx="42" fill="#0B111A"/>
+  <defs>
+    <linearGradient id="beam" x1="120" y1="180" x2="430" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67E8F9"/>
+      <stop offset="0.55" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(285 180) rotate(90) scale(130 220)">
+      <stop stop-color="#67E8F9" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#67E8F9" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="285" cy="180" r="132" fill="url(#glow)"/>
+  <path d="M78 180 C150 124 214 118 284 180 C214 242 150 236 78 180Z" stroke="url(#beam)" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M284 180 C354 118 418 124 490 180 C418 236 354 242 284 180Z" stroke="url(#beam)" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M84 180 H486" stroke="#67E8F9" stroke-width="5" stroke-linecap="round"/>
+  <path d="M104 132 C198 165 278 174 468 180" stroke="#60A5FA" stroke-width="3" stroke-linecap="round" opacity="0.75"/>
+  <path d="M104 228 C198 195 278 186 468 180" stroke="#60A5FA" stroke-width="3" stroke-linecap="round" opacity="0.75"/>
+  <circle cx="284" cy="180" r="12" fill="#FBBF24"/>
+  <circle cx="486" cy="180" r="7" fill="#67E8F9"/>
+  <text x="575" y="165" fill="#EAF2FF" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="72" font-weight="750" letter-spacing="-2">BeamLabStudio</text>
+  <text x="580" y="222" fill="#AAB8CF" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="28" font-weight="450">Particle beam analysis and visualization</text>
+</svg>
