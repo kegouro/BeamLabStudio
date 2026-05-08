@@ -101,7 +101,7 @@ ExportResult AnalysisReportExporter::exportFocusCurve(
     }
 
     output << "# BeamLabStudio focus curve export\n";
-    output << "# units: reference_value_m in seconds, metric_value_m in meters\n";
+    output << "# units: reference_value_m and metric_value_m in meters\n";
     output << "# metric: " << focus.curve.metric_name << "\n";
     output << "# focus_index: " << focus.focus_index << "\n";
     output << "# focus_reference_value_m: "
@@ -248,8 +248,8 @@ ExportResult AnalysisReportExporter::exportRunMetadata(
     output << "    \"beam_caustic_surface\": {\n";
     output << "      \"valid\": " << (caustic_surface.valid ? "true" : "false") << ",\n";
     output << "      \"display_name\": \"Focal envelope proxy\",\n";
-    output << "      \"scope\": \"focal_window\",\n";
-    output << "      \"description\": \"Boundary surface reconstructed from transverse beam slices. Not physical beamline geometry.\",\n";
+    output << "      \"scope\": \"full_axial_range\",\n";
+    output << "      \"description\": \"Boundary surface reconstructed from axial transverse slices. Not physical beamline geometry.\",\n";
     output << "      \"method_name\": \"" << escapeJson(caustic_surface.method_name) << "\",\n";
     output << "      \"slice_count\": " << caustic_surface.slice_count << ",\n";
     output << "      \"points_per_slice\": " << caustic_surface.points_per_slice << ",\n";
@@ -361,7 +361,7 @@ ExportResult AnalysisReportExporter::exportMarkdownSummary(
     output << "| Metric | `" << focus.curve.metric_name << "` |\n";
     output << "| Focus index | " << focus.focus_index << " |\n";
     output << "| Focus axial position [m] | " << focus.focus_reference_value << " |\n";
-    output << "| Minimum transverse RMS radius [m] | " << focus.focus_metric_value << " |\n";
+    output << "| Minimum focus radius metric [m] | " << focus.focus_metric_value << " |\n";
     output << "| Confidence proxy | " << focus.confidence << " |\n\n";
 
     output << "## Envelopes\n\n";
@@ -377,7 +377,7 @@ ExportResult AnalysisReportExporter::exportMarkdownSummary(
            << (caustic_surface.valid ? "true" : "false") << " | "
            << caustic_surface.mesh.vertices.size() << " | "
            << caustic_surface.mesh.faces.size()
-           << " | Boundary surface reconstructed from transverse slices near focus |\n";
+           << " | Boundary surface reconstructed from axial transverse slices |\n";
     output << "| Effective lens disk | "
            << (lens_disk.valid ? "true" : "false") << " | "
            << lens_disk.mesh.vertices.size() << " | "

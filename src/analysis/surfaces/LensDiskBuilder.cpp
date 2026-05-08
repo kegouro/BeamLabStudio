@@ -1,9 +1,9 @@
 #include "analysis/surfaces/LensDiskBuilder.h"
 
-#include "analysis/surfaces/ContourResampler.h"
-
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <numbers>
 #include <vector>
 
 namespace beamlab::analysis {
@@ -35,6 +35,46 @@ beamlab::core::Vec2 interpolate2D(const beamlab::core::Vec2& a,
         a.x + (b.x - a.x) * t,
         a.y + (b.y - a.y) * t
     };
+}
+
+double equivalentRadius(const beamlab::data::BeamEnvelope& envelope)
+{
+    if (envelope.area_m2 > 0.0) {
+        return std::sqrt(envelope.area_m2 / std::numbers::pi);
+    }
+
+    const auto center = centroid2D(envelope.boundary_points);
+    double max_radius = 0.0;
+
+    for (const auto& point : envelope.boundary_points) {
+        const double du = point.x - center.x;
+        const double dv = point.y - center.y;
+        max_radius = std::max(max_radius, std::sqrt(du * du + dv * dv));
+    }
+
+    return max_radius;
+}
+
+std::vector<beamlab::core::Vec2> makeCircularBoundary(
+    const beamlab::core::Vec2& center,
+    const double radius,
+    const std::size_t point_count)
+{
+    std::vector<beamlab::core::Vec2> boundary{};
+    boundary.reserve(point_count);
+
+    for (std::size_t i = 0; i < point_count; ++i) {
+        const double theta = 2.0 * std::numbers::pi *
+                             static_cast<double>(i) /
+                             static_cast<double>(point_count);
+
+        boundary.push_back({
+            center.x + radius * std::cos(theta),
+            center.y + radius * std::sin(theta)
+        });
+    }
+
+    return boundary;
 }
 
 beamlab::core::Vec3 add(const beamlab::core::Vec3& a,
@@ -79,7 +119,7 @@ beamlab::data::LensSurfaceModel LensDiskBuilder::build(
 {
     beamlab::data::LensSurfaceModel lens{};
     lens.name = "effective_lens_disk";
-    lens.method_name = "biconvex_disk_from_focal_envelope";
+    lens.method_name = "biconvex_circular_disk_from_minimum_envelope";
 
     if (!focal_envelope.valid ||
         focal_envelope.boundary_points.size() < 3 ||
@@ -91,18 +131,20 @@ beamlab::data::LensSurfaceModel LensDiskBuilder::build(
         return lens;
     }
 
-    const ContourResampler resampler{};
-    const auto boundary = resampler.resampleClosedContour(
-        focal_envelope.boundary_points,
-        parameters.boundary_point_count
-    );
+    const auto center_uv = centroid2D(focal_envelope.boundary_points);
+    const double aperture_radius = equivalentRadius(focal_envelope);
 
-    if (boundary.size() < 3) {
+    if (!std::isfinite(aperture_radius) || aperture_radius <= 0.0) {
         lens.valid = false;
         return lens;
     }
 
-    const auto center_uv = centroid2D(boundary);
+    const auto boundary = makeCircularBoundary(
+        center_uv,
+        aperture_radius,
+        parameters.boundary_point_count
+    );
+
     const std::size_t n = boundary.size();
     const std::size_t layers = parameters.radial_layers;
 

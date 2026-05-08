@@ -1088,25 +1088,39 @@ void Scene3DWidget::paintEvent(QPaintEvent*)
 
             const auto& polyline = layer.polylines[static_cast<std::size_t>(i)];
 
-            const std::size_t visible_points =
-                std::max<std::size_t>(
-                    2,
-                    static_cast<std::size_t>(
-                        std::ceil(
-                            static_cast<double>(polyline.indices.size()) *
-                            trajectory_parameter_
-                        )
-                    )
+            const double continuous_index =
+                trajectory_parameter_ *
+                static_cast<double>(polyline.indices.size() - 1);
+            const std::size_t complete_segments =
+                std::min<std::size_t>(
+                    polyline.indices.size() - 1,
+                    static_cast<std::size_t>(std::floor(continuous_index))
                 );
+            const double partial_segment = continuous_index -
+                                           static_cast<double>(complete_segments);
 
-            const std::size_t limit =
-                std::min(polyline.indices.size(), visible_points);
-
-            for (std::size_t j = 1; j < limit; ++j) {
+            for (std::size_t j = 1; j <= complete_segments; ++j) {
                 painter.drawLine(
                     toScreen(layer_index, polyline.indices[j - 1]),
                     toScreen(layer_index, polyline.indices[j])
                 );
+            }
+
+            if (complete_segments + 1 < polyline.indices.size() &&
+                partial_segment > 1.0e-9) {
+                const QPointF a =
+                    toScreen(layer_index, polyline.indices[complete_segments]);
+                const QPointF b =
+                    toScreen(layer_index, polyline.indices[complete_segments + 1]);
+                const QPointF p{
+                    a.x() + (b.x() - a.x()) * partial_segment,
+                    a.y() + (b.y() - a.y()) * partial_segment
+                };
+
+                painter.drawLine(a, p);
+            } else if (complete_segments == 0) {
+                const QPointF start = toScreen(layer_index, polyline.indices.front());
+                painter.drawEllipse(start, 1.25, 1.25);
             }
 
             ++drawn;

@@ -29,6 +29,7 @@
 #include <QFrame>
 #include <QPdfWriter>
 #include <QResizeEvent>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTextStream>

@@ -1,8 +1,10 @@
 #include "ui/qt/MainWindow.h"
+#include "ui/qt/InfoWidget.h"
 #include "ui/qt/InteractiveGraphicsView.h"
 #include "ui/qt/ObjViewerWidget.h"
 #include "ui/qt/RunDashboardWidget.h"
 #include "ui/qt/Scene3DWidget.h"
+#include "ui/qt/SimulatorWidget.h"
 #include "ui/qt/StatsDashboardWidget.h"
 
 #include <QAction>
@@ -1447,12 +1449,14 @@ QFrame[frameShape="5"] {
 
     statistics_page_layout->addWidget(statistics_controls_row);
 
-    statistics_dashboard_->setMinimumSize(1500, 1180);
-    statistics_dashboard_->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
+    // Keep a reasonable minimum so charts are legible; the scroll area takes
+    // over when the window is smaller than this.
+    statistics_dashboard_->setMinimumSize(820, 700);
+    statistics_dashboard_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     auto* statistics_scroll_area = new QScrollArea(statistics_page);
     statistics_scroll_area->setObjectName("StatisticsScrollArea");
-    statistics_scroll_area->setWidgetResizable(false);
+    statistics_scroll_area->setWidgetResizable(true);
     statistics_scroll_area->setFrameShape(QFrame::NoFrame);
     statistics_scroll_area->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     statistics_scroll_area->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -1521,7 +1525,81 @@ QFrame[frameShape="5"] {
     tabs_->addTab(statistics_page, "Statistics");
     tabs_->addTab(combined_page_, "Combined 3D");
     tabs_->addTab(trajectory_plot_page_, "Individual trajectories 2D");
-    tabs_->addTab(make_obj_viewer_page(trajectories_obj_viewer_), "Individual trajectories 3D");
+
+    // ── Individual trajectories 3D tab with trajectory count control ──────────
+    {
+        auto* traj3d_page = new QWidget(tabs_);
+        auto* traj3d_layout = new QVBoxLayout(traj3d_page);
+        auto* traj3d_toolbar = new QHBoxLayout();
+
+        auto* reset3d = new QPushButton("Reset", traj3d_page);
+        auto* iso3d   = new QPushButton("Iso",   traj3d_page);
+        auto* xy3d    = new QPushButton("XY",    traj3d_page);
+        auto* yz3d    = new QPushButton("YZ",    traj3d_page);
+        auto* xz3d    = new QPushButton("XZ",    traj3d_page);
+        auto* axes3d  = new QCheckBox("Axes",    traj3d_page);
+        auto* meas3d  = new QCheckBox("Measures",traj3d_page);
+        axes3d->setChecked(true);
+        meas3d->setChecked(true);
+
+        traj3d_count_label_  = new QLabel("Trajectories: 0/0", traj3d_page);
+        traj3d_count_slider_ = new QSlider(Qt::Horizontal, traj3d_page);
+        traj3d_count_slider_->setRange(0, 0);
+        traj3d_count_slider_->setValue(0);
+        traj3d_count_slider_->setMinimumWidth(80);
+        traj3d_count_slider_->setMaximumWidth(160);
+        traj3d_count_slider_->setEnabled(false);
+        traj3d_count_spin_ = new QSpinBox(traj3d_page);
+        traj3d_count_spin_->setRange(0, 0);
+        traj3d_count_spin_->setValue(0);
+        traj3d_count_spin_->setMaximumWidth(70);
+        traj3d_count_spin_->setEnabled(false);
+
+        traj3d_toolbar->addWidget(reset3d);
+        traj3d_toolbar->addWidget(iso3d);
+        traj3d_toolbar->addWidget(xy3d);
+        traj3d_toolbar->addWidget(yz3d);
+        traj3d_toolbar->addWidget(xz3d);
+        traj3d_toolbar->addSpacing(10);
+        traj3d_toolbar->addWidget(axes3d);
+        traj3d_toolbar->addWidget(meas3d);
+        traj3d_toolbar->addSpacing(16);
+        traj3d_toolbar->addWidget(traj3d_count_label_);
+        traj3d_toolbar->addWidget(traj3d_count_slider_);
+        traj3d_toolbar->addWidget(traj3d_count_spin_);
+        traj3d_toolbar->addStretch(1);
+
+        traj3d_layout->addLayout(traj3d_toolbar);
+        traj3d_layout->addWidget(trajectories_obj_viewer_, 1);
+
+        connect(reset3d, &QPushButton::clicked, trajectories_obj_viewer_, &ObjViewerWidget::resetCamera);
+        connect(iso3d, &QPushButton::clicked, trajectories_obj_viewer_, [this]() { trajectories_obj_viewer_->setViewPreset(0); });
+        connect(xy3d,  &QPushButton::clicked, trajectories_obj_viewer_, [this]() { trajectories_obj_viewer_->setViewPreset(1); });
+        connect(yz3d,  &QPushButton::clicked, trajectories_obj_viewer_, [this]() { trajectories_obj_viewer_->setViewPreset(2); });
+        connect(xz3d,  &QPushButton::clicked, trajectories_obj_viewer_, [this]() { trajectories_obj_viewer_->setViewPreset(3); });
+        connect(axes3d, &QCheckBox::toggled, trajectories_obj_viewer_, &ObjViewerWidget::setAxesVisible);
+        connect(meas3d, &QCheckBox::toggled, trajectories_obj_viewer_, &ObjViewerWidget::setMeasureGuidesVisible);
+
+        connect(traj3d_count_slider_, &QSlider::valueChanged, this, [this](int value) {
+            const QSignalBlocker blocker(traj3d_count_spin_);
+            traj3d_count_spin_->setValue(value);
+            trajectories_obj_viewer_->setMaxPolylines(value);
+            traj3d_count_label_->setText(
+                QString("Trajectories: %1/%2").arg(value).arg(traj3d_count_slider_->maximum()));
+        });
+        connect(traj3d_count_spin_, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), this, [this](int value) {
+            const QSignalBlocker blocker(traj3d_count_slider_);
+            traj3d_count_slider_->setValue(value);
+            trajectories_obj_viewer_->setMaxPolylines(value);
+            traj3d_count_label_->setText(
+                QString("Trajectories: %1/%2").arg(value).arg(traj3d_count_slider_->maximum()));
+        });
+
+        obj_axes_checks_.push_back(axes3d);
+        obj_measure_guides_checks_.push_back(meas3d);
+
+        tabs_->addTab(traj3d_page, "Individual trajectories 3D");
+    }
     tabs_->addTab(focal_slice_plot_page_, "Focal slice");
     tabs_->addTab(envelope_plot_page_, "Focal envelope rings");
     tabs_->addTab(make_obj_viewer_page(caustic_obj_viewer_), "Focal envelope proxy");
@@ -1529,6 +1607,12 @@ QFrame[frameShape="5"] {
     tabs_->addTab(trajectories_table_, "Individual trajectories CSV");
     tabs_->addTab(focal_slice_table_, "Focal slice CSV");
     tabs_->addTab(envelope_table_, "Focal envelope rings CSV");
+
+    simulator_widget_ = new SimulatorWidget();
+    tabs_->addTab(simulator_widget_, "Simulator");
+
+    info_widget_ = new InfoWidget();
+    tabs_->addTab(info_widget_, "Info");
 
     log_panel_ = new QWidget(central);
     auto* log_layout = new QVBoxLayout(log_panel_);
@@ -2147,6 +2231,10 @@ void MainWindow::loadManifest(const QString& path)
     run_dir.cdUp();
     current_run_dir_ = run_dir.absolutePath();
 
+    if (simulator_widget_) {
+        simulator_widget_->setRunDirectory(current_run_dir_);
+    }
+
     const auto trajectories_csv = resolvePath(
         extractJsonString(text, "trajectories_preview_csv"),
         path
@@ -2167,21 +2255,35 @@ void MainWindow::loadManifest(const QString& path)
         path
     );
 
-    const auto caustic_obj = resolvePath(
+    // For the combined 3D scene use the real (world-coordinate) OBJ so all
+    // layers are in the same coordinate frame.  Fall back to preview if needed.
+    QString caustic_scene_raw = extractJsonString(text, "beam_caustic_obj");
+    if (caustic_scene_raw.isEmpty()) {
+        caustic_scene_raw = extractJsonString(text, "beam_caustic_preview_obj");
+    }
+    const auto caustic_obj = resolvePath(caustic_scene_raw, path);
+
+    // Preview OBJ for the standalone Focal envelope proxy viewer tab.
+    const auto caustic_preview_obj = resolvePath(
         extractJsonString(text, "beam_caustic_preview_obj"),
         path
     );
 
-    QString lens_obj_raw = extractJsonString(text, "effective_lens_body_preview_obj");
-
+    QString lens_obj_raw = extractJsonString(text, "effective_lens_disk_obj");
+    if (lens_obj_raw.isEmpty()) {
+        lens_obj_raw = extractJsonString(text, "effective_lens_body_preview_obj");
+    }
     if (lens_obj_raw.isEmpty()) {
         lens_obj_raw = extractJsonString(text, "effective_lens_disk_preview_obj");
     }
+    const auto lens_obj = resolvePath(lens_obj_raw, path);
 
-    const auto lens_obj = resolvePath(
-        lens_obj_raw,
-        path
-    );
+    // Preview OBJ for the standalone Effective lens viewer tab.
+    QString lens_preview_raw = extractJsonString(text, "effective_lens_disk_preview_obj");
+    if (lens_preview_raw.isEmpty()) {
+        lens_preview_raw = lens_obj_raw;
+    }
+    const auto lens_preview_obj = resolvePath(lens_preview_raw, path);
 
     QString full_envelope_obj_raw =
         extractJsonString(text, "full_beam_envelope_preview_obj");
@@ -2220,8 +2322,26 @@ void MainWindow::loadManifest(const QString& path)
     status_label_->setText("Loaded: " + path);
 
     trajectories_obj_viewer_->loadObj(trajectories_obj);
-    caustic_obj_viewer_->loadObj(caustic_obj);
-    lens_obj_viewer_->loadObj(lens_obj);
+    caustic_obj_viewer_->loadObj(caustic_preview_obj.isEmpty() ? caustic_obj : caustic_preview_obj);
+    lens_obj_viewer_->loadObj(lens_preview_obj.isEmpty() ? lens_obj : lens_preview_obj);
+
+    // Update Individual trajectories 3D count control
+    {
+        const int poly_count = trajectories_obj_viewer_->polylineCount();
+        const bool has_polys = poly_count > 0;
+        traj3d_count_slider_->setEnabled(has_polys);
+        traj3d_count_spin_->setEnabled(has_polys);
+
+        const QSignalBlocker b1(traj3d_count_slider_);
+        const QSignalBlocker b2(traj3d_count_spin_);
+        traj3d_count_slider_->setRange(0, poly_count);
+        traj3d_count_spin_->setRange(0, poly_count);
+        traj3d_count_slider_->setValue(poly_count);
+        traj3d_count_spin_->setValue(poly_count);
+        traj3d_count_label_->setText(
+            QString("Trajectories: %1/%1").arg(poly_count));
+        trajectories_obj_viewer_->setMaxPolylines(poly_count);
+    }
 
     combined_scene_viewer_->clearLayers();
 

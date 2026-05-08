@@ -82,7 +82,7 @@ bool ObjViewerWidget::loadObj(const QString& path)
 {
     vertices_.clear();
     faces_.clear();
-    lines_.clear();
+    polylines_.clear();
     loaded_path_ = path;
 
     QFile file(path);
@@ -137,7 +137,7 @@ bool ObjViewerWidget::loadObj(const QString& path)
                 faces_.push_back(std::move(face));
             }
         } else if (parts[0] == "l" && parts.size() >= 3) {
-            std::vector<int> polyline{};
+            Polyline polyline{};
 
             for (int i = 1; i < parts.size(); ++i) {
                 const QStringList line_parts = splitObjFaceToken(parts[i]);
@@ -145,12 +145,12 @@ bool ObjViewerWidget::loadObj(const QString& path)
                 const int index = line_parts[0].toInt(&ok);
 
                 if (ok) {
-                    polyline.push_back(index - 1);
+                    polyline.indices.push_back(index - 1);
                 }
             }
 
-            for (std::size_t i = 1; i < polyline.size(); ++i) {
-                lines_.push_back({polyline[i - 1], polyline[i]});
+            if (polyline.indices.size() >= 2) {
+                polylines_.push_back(std::move(polyline));
             }
         }
     }
@@ -159,10 +159,10 @@ bool ObjViewerWidget::loadObj(const QString& path)
     resetCamera();
 
     status_text_ =
-        QString("Loaded OBJ | vertices: %1 | faces: %2 | lines: %3")
+        QString("Loaded OBJ | vertices: %1 | faces: %2 | polylines: %3")
             .arg(vertices_.size())
             .arg(faces_.size())
-            .arg(lines_.size());
+            .arg(polylines_.size());
 
     update();
     return !vertices_.empty();
@@ -863,23 +863,34 @@ void ObjViewerWidget::paintEvent(QPaintEvent*)
         }
     }
 
-    if (!lines_.empty()) {
+    if (!polylines_.empty()) {
         QPen line_pen(QColor(120, 255, 210, 120));
         line_pen.setWidthF(0.9);
         painter.setPen(line_pen);
 
-        for (const auto& [a, b] : lines_) {
-            if (a < 0 || b < 0 ||
-                a >= static_cast<int>(vertices_.size()) ||
-                b >= static_cast<int>(vertices_.size())) {
-                continue;
-            }
+        const int n_total = static_cast<int>(polylines_.size());
+        const int n_draw = (max_polylines_ < 0)
+            ? n_total
+            : std::min(max_polylines_, n_total);
 
-            painter.drawLine(toScreen(a), toScreen(b));
+        for (int pi = 0; pi < n_draw; ++pi) {
+            const auto& poly = polylines_[static_cast<std::size_t>(pi)];
+            for (std::size_t si = 1; si < poly.indices.size(); ++si) {
+                const int a = poly.indices[si - 1];
+                const int b = poly.indices[si];
+
+                if (a < 0 || b < 0 ||
+                    a >= static_cast<int>(vertices_.size()) ||
+                    b >= static_cast<int>(vertices_.size())) {
+                    continue;
+                }
+
+                painter.drawLine(toScreen(a), toScreen(b));
+            }
         }
     }
 
-    if (faces_.empty() && lines_.empty()) {
+    if (faces_.empty() && polylines_.empty()) {
         painter.setPen(QPen(panelAccent(), 2.0));
 
         for (std::size_t i = 0; i < vertices_.size(); ++i) {
@@ -1047,6 +1058,17 @@ void ObjViewerWidget::keyPressEvent(QKeyEvent* event)
     }
 
     QWidget::keyPressEvent(event);
+}
+
+void ObjViewerWidget::setMaxPolylines(const int max)
+{
+    max_polylines_ = max;
+    update();
+}
+
+int ObjViewerWidget::polylineCount() const
+{
+    return static_cast<int>(polylines_.size());
 }
 
 } // namespace beamlab::ui

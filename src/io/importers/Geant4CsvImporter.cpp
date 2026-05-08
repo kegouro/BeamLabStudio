@@ -1,3 +1,25 @@
+//!@math-begin module="Geant4Import" title="Importación de CSV Geant4 — Conversión de Unidades"
+//!@math El CSV de Geant4 usa unidades del sistema de simulación.
+//!@math BeamLabStudio convierte internamente al SI (metros, segundos):
+//!@section Conversión de posiciones
+//!@formula x [m] = x_cm · 0.01
+//!@formula y [m] = y_cm · 0.01
+//!@formula z [m] = z_cm · 0.01
+//!@section Conversión de tiempo
+//!@formula t [s] = t_ns · 10⁻⁹
+//!@section Energía — se preserva en MeV (unidad nativa de física de partículas)
+//!@formula edep [MeV]  → se almacena tal cual
+//!@formula edep [eV]   = edep [MeV] · 10⁶
+//!@formula kinE [MeV]  → se almacena tal cual
+//!@section Identificación de trayectorias
+//!@math Cada (eventID, trackID) genera un ID de trayectoria único:
+//!@formula unique_id = eventID · 10 000 000 + trackID + 1
+//!@note El primer paso de cada trayectoria (edep ≈ 0, kinE = E_gun) define
+//!@note la información de partícula: energía inicial, tipo (mu⁻ por defecto), carga.
+//!@section Información de partícula por defecto (muón)
+//!@formula tipo = "mu-",   carga = −1,   masa = 105.6583755 MeV/c²
+//!@math-end
+
 #include "io/importers/Geant4CsvImporter.h"
 
 #include "data/ids/SampleId.h"
@@ -371,6 +393,18 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
 
         auto& trajectory = dataset.trajectories[index_it->second];
 
+        // Read optional physics columns (may be absent in minimal exports)
+        const auto edep_opt = (columns.edep_MeV < tokens.size())
+            ? parseDouble(tokens[columns.edep_MeV]) : std::optional<double>{};
+        const auto kine_opt = (columns.kinE_MeV < tokens.size())
+            ? parseDouble(tokens[columns.kinE_MeV]) : std::optional<double>{};
+        const auto momx_opt = (columns.momx_MeV < tokens.size())
+            ? parseDouble(tokens[columns.momx_MeV]) : std::optional<double>{};
+        const auto momy_opt = (columns.momy_MeV < tokens.size())
+            ? parseDouble(tokens[columns.momy_MeV]) : std::optional<double>{};
+        const auto momz_opt = (columns.momz_MeV < tokens.size())
+            ? parseDouble(tokens[columns.momz_MeV]) : std::optional<double>{};
+
         beamlab::data::TrajectorySample sample{};
         sample.id = beamlab::data::SampleId{sample_counter++};
         sample.trajectory_id = trajectory.id;
@@ -382,6 +416,30 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
             z_cm.value() * 0.01
         };
         sample.time_s = time_ns.value() * 1.0e-9;
+
+        // Physics fields — stored in native Geant4 units (MeV, MeV/c)
+        sample.edep_MeV  = edep_opt.value_or(0.0);
+        sample.edep_eV   = sample.edep_MeV * 1.0e6;
+        sample.kinE_MeV  = kine_opt.value_or(0.0);
+        sample.momentum_MeV = {
+            momx_opt.value_or(0.0),
+            momy_opt.value_or(0.0),
+            momz_opt.value_or(0.0)
+        };
+
+        // Capture particle info from the first step of each trajectory.
+        // Geant4 convention: the very first step of a primary track has edep≈0
+        // and kinE equal to the gun energy.
+        if (trajectory.samples.empty()) {
+            trajectory.particle.event_id      = static_cast<int>(*event_id);
+            trajectory.particle.track_id      = static_cast<int>(*track_id);
+            trajectory.particle.initial_kinE_MeV = sample.kinE_MeV;
+            // Charge sign heuristic: mu- is the most common cosmic/beam muon.
+            // Files with mu+ would require a dedicated column; default to mu-.
+            trajectory.particle.particle_type = "mu-";
+            trajectory.particle.charge        = -1.0;
+            trajectory.particle.mass_MeV      = 105.6583755; // muon rest mass
+        }
 
         trajectory.samples.push_back(sample);
         ++parsed_rows;

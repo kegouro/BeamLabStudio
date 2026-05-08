@@ -31,6 +31,14 @@ public:
         const std::vector<beamlab::data::BeamEnvelope>& envelopes,
         const beamlab::data::AxisFrame& axis_frame,
         const std::string& output_path) const;
+
+    // Exports selected trajectories as an OBJ polyline file (world coordinates).
+    // Each trajectory becomes one 'l' entry; vertices are shared across all trajectories.
+    [[nodiscard]] ExportResult exportTrajectoryPolylines(
+        const beamlab::data::TrajectoryDataset& dataset,
+        const std::string& output_path,
+        std::size_t max_trajectories,
+        std::size_t max_samples_per_trajectory) const;
 };
 
 } // namespace beamlab::io

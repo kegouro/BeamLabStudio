@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>BeamLabStudio — Documentación Matemática</title>
+<style>
+body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #1A1E2A;
+    color: #C8D4E8;
+    margin: 0;
+    padding: 20px 28px;
+    font-size: 14px;
+    line-height: 1.65;
+}
+h1 { color: #7CF2D2; font-size: 1.4em; margin-bottom: 4px; }
+h2 { color: #7CAFF2; font-size: 1.15em; margin-top: 28px;
+     border-bottom: 1px solid #2E3650; padding-bottom: 4px; }
+h3 { color: #A0C0FF; font-size: 1.0em; margin-top: 18px; margin-bottom: 4px; }
+p  { margin: 4px 0 8px 0; }
+.formula {
+    display: block;
+    background: #12172A;
+    border-left: 3px solid #7CF2D2;
+    padding: 8px 14px;
+    margin: 8px 0 8px 0;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.97em;
+    color: #E8F4FF;
+    white-space: pre-wrap;
+}
+.var {
+    display: block;
+    padding: 2px 0 2px 18px;
+    color: #B0C8E8;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.93em;
+}
+.note {
+    display: block;
+    padding: 3px 0 3px 14px;
+    border-left: 2px solid #445;
+    color: #90A8C4;
+    font-style: italic;
+    margin: 4px 0;
+}
+.source {
+    font-size: 0.78em;
+    color: #4A6080;
+    margin-bottom: 12px;
+    font-family: 'Consolas', monospace;
+}
+.toc { margin: 16px 0 24px 0; padding: 12px 18px;
+       background: #141822; border-radius: 6px; }
+.toc a { color: #7CAFF2; text-decoration: none; display: block;
+          padding: 2px 0; }
+.toc a:hover { color: #7CF2D2; }
+.timestamp { color: #3A5070; font-size: 0.8em; margin-top: 40px; }
+hr { border: none; border-top: 1px solid #232A3A; margin: 24px 0; }
+</style>
+</head>
+<body>
+<h1>BeamLabStudio — Procedimientos Matemáticos</h1>
+<p>Esta documentación se extrae automáticamente de los bloques
+<code>//!@math-begin</code> en el código fuente.
+Al recompilar el proyecto los cálculos mostrados aquí reflejan exactamente
+las fórmulas implementadas.</p>
+<div class="toc"><strong>Contenido</strong><br/>
+<a href="#mod-FocusDetection">Detección del Foco — Mínimo de la Curva Métrica</a>
+<a href="#mod-FrameStatistics">Estadísticas por Frame — Radio RMS Transversal</a>
+<a href="#mod-Geant4Import">Importación de CSV Geant4 — Conversión de Unidades</a>
+<a href="#mod-AxisFrame">Resolución del Marco de Referencia del Haz</a>
+<a href="#mod-Normalization">Normalización del Dataset — Resúmenes por Trayectoria</a>
+<a href="#mod-BetheBloch">Fórmula de Bethe-Bloch — Pérdida de Energía</a>
+<a href="#mod-ScoringPlanes">Detección de Planos de Scoring — Análisis de Densidad</a>
+</div>
+<h2 id="mod-FocusDetection">Detección del Foco — Mínimo de la Curva Métrica</h2>
+<div class="source">⟵ src/analysis/focus/FocusDetector.cpp</div>
+<p>El foco se define como la posición axial s* donde la métrica M(s)</p>
+<p>alcanza su mínimo global:</p>
+<code class="formula">s* = argmin_s { M(s) }   con M(s) = r_rms(s)  [por defecto]</code>
+<h3>Confianza del foco (contrast proxy)</h3>
+<p>Se mide el contraste alrededor del bin óptimo i*:</p>
+<code class="formula">C = [ M(i*−1) + M(i*+1) ] / 2 − M(i*)</code>
+<span class="note">ℹ C &gt; 0 indica un mínimo real (pozo); C ≈ 0 indica curva plana (sin foco claro).</span>
+<span class="note">ℹ Para datos Geant4 de muones cósmicos (sin lente) el foco es el punto de</span>
+<span class="note">ℹ menor dispersión transversal, que puede estar en la entrada del volumen.</span>
+<h3>Métricas disponibles</h3>
+<code class="formula">r_rms = √(σ_u² + σ_v²)   [radio RMS total — por defecto]</code>
+<code class="formula">σ_u   [desviación estándar en la dirección transversal u]</code>
+<code class="formula">σ_v   [desviación estándar en la dirección transversal v]</code>
+<hr/>
+<h2 id="mod-FrameStatistics">Estadísticas por Frame — Radio RMS Transversal</h2>
+<div class="source">⟵ src/analysis/statistics/FrameStatisticsEngine.cpp</div>
+<p>Para cada bin axial se acumulan los puntos de todas las trayectorias</p>
+<p>y se calculan las siguientes estadísticas transversales:</p>
+<h3>Proyección al marco de referencia</h3>
+<p>Sea p⃗ la posición de un muestra y ê_s, ê_u, ê_v los versores del marco:</p>
+<code class="formula">s = (p⃗ − origen) · ê_s   [coordenada longitudinal]</code>
+<code class="formula">u = (p⃗ − origen) · ê_u   [transversal 1]</code>
+<code class="formula">v = (p⃗ − origen) · ê_v   [transversal 2]</code>
+<h3>Momentos estadísticos (acumulador de un solo paso)</h3>
+<p>Con N puntos en el bin:</p>
+<code class="formula">ū = (1/N) Σᵢ uᵢ        [centroide u]</code>
+<code class="formula">v̄ = (1/N) Σᵢ vᵢ        [centroide v]</code>
+<code class="formula">σ_u² = (1/N) Σᵢ uᵢ² − ū²   [varianza u]</code>
+<code class="formula">σ_v² = (1/N) Σᵢ vᵢ² − v̄²   [varianza v]</code>
+<h3>Radio RMS transversal (proxy de foco)</h3>
+<code class="formula">r_rms = √(σ_u² + σ_v²)</code>
+<span class="note">ℹ El foco geométrico se define como el bin con r_rms mínimo.</span>
+<span class="note">ℹ Se usa el estimador sesgado (1/N) por consistencia con el proxy de foco;</span>
+<span class="note">ℹ para N &gt;&gt; 1 la diferencia con el estimador insesgado 1/(N-1) es despreciable.</span>
+<h3>Modos de binning</h3>
+<p>Uniforme: bins de igual anchura Δs = (s_max − s_min) / N_bins</p>
+<p>Equal-count: bins con igual número de puntos (percentiles).</p>
+<p>Sincronizado: usa el índice de muestra como "tiempo" (requiere ≥80 % de</p>
+<p>trayectorias con el mismo número de pasos).</p>
+<hr/>
+<h2 id="mod-Geant4Import">Importación de CSV Geant4 — Conversión de Unidades</h2>
+<div class="source">⟵ src/io/importers/Geant4CsvImporter.cpp</div>
+<p>El CSV de Geant4 usa unidades del sistema de simulación.</p>
+<p>BeamLabStudio convierte internamente al SI (metros, segundos):</p>
+<h3>Conversión de posiciones</h3>
+<code class="formula">x [m] = x_cm · 0.01</code>
+<code class="formula">y [m] = y_cm · 0.01</code>
+<code class="formula">z [m] = z_cm · 0.01</code>
+<h3>Conversión de tiempo</h3>
+<code class="formula">t [s] = t_ns · 10⁻⁹</code>
+<h3>Energía — se preserva en MeV (unidad nativa de física de partículas)</h3>
+<code class="formula">edep [MeV]  → se almacena tal cual</code>
+<code class="formula">edep [eV]   = edep [MeV] · 10⁶</code>
+<code class="formula">kinE [MeV]  → se almacena tal cual</code>
+<h3>Identificación de trayectorias</h3>
+<p>Cada (eventID, trackID) genera un ID de trayectoria único:</p>
+<code class="formula">unique_id = eventID · 10 000 000 + trackID + 1</code>
+<span class="note">ℹ El primer paso de cada trayectoria (edep ≈ 0, kinE = E_gun) define</span>
+<span class="note">ℹ la información de partícula: energía inicial, tipo (mu⁻ por defecto), carga.</span>
+<h3>Información de partícula por defecto (muón)</h3>
+<code class="formula">tipo = "mu-",   carga = −1,   masa = 105.6583755 MeV/c²</code>
+<hr/>
+<h2 id="mod-AxisFrame">Resolución del Marco de Referencia del Haz</h2>
+<div class="source">⟵ src/io/normalization/AxisFrameResolver.cpp</div>
+<p>El marco de referencia (axis frame) transforma coordenadas de laboratorio</p>
+<p>(x, y, z) a coordenadas del haz (s, u, v), donde s es el eje longitudinal.</p>
+<h3>Detección automática del eje longitudinal</h3>
+<p>Se calcula el rango de cada coordenada sobre todos los puntos del dataset:</p>
+<code class="formula">Rₓ = max(x) − min(x),   R_y = max(y) − min(y),   R_z = max(z) − min(z)</code>
+<p>El eje con mayor rango es el eje longitudinal del haz:</p>
+<code class="formula">ê_s = ê_z  si  R_z ≥ R_x  y  R_z ≥ R_y   (caso más común en Geant4)</code>
+<h3>Signo del eje longitudinal</h3>
+<p>Se suma el vector (último_punto − primer_punto) de cada trayectoria:</p>
+<code class="formula">Σ_z = Σᵢ ( z_final_i − z_inicial_i )</code>
+<code class="formula">signo(ê_s) = +1  si  Σ_z ≥ 0,  −1  si  Σ_z &amp;lt; 0</code>
+<span class="note">ℹ Esto garantiza que ê_s apunta en la dirección de propagación del haz.</span>
+<h3>Marco resultante</h3>
+<p>Para eje Z positivo (caso del CSV de muones):</p>
+<code class="formula">ê_s = (0, 0, +1),   ê_u = (1, 0, 0),   ê_v = (0, 1, 0)</code>
+<h3>Confianza del marco</h3>
+<code class="formula">confidence = R_max / (Rₓ + R_y + R_z)   ∈ [1/3, 1]</code>
+<span class="note">ℹ confidence → 1 cuando el haz es puramente axial; → 1/3 cuando las tres</span>
+<span class="note">ℹ extensiones son iguales (ambigüedad).</span>
+<hr/>
+<h2 id="mod-Normalization">Normalización del Dataset — Resúmenes por Trayectoria</h2>
+<div class="source">⟵ src/io/normalization/DatasetNormalizer.cpp</div>
+<p>La normalización ordena las muestras de cada trayectoria por tiempo y</p>
+<p>calcula los resúmenes físicos.</p>
+<h3>Ordenación temporal</h3>
+<p>Las muestras de cada trayectoria se ordenan por t [s] ascendente.</p>
+<h3>Longitud de trayectoria (range)</h3>
+<p>Se calcula como la suma de las distancias euclídeas entre pasos consecutivos:</p>
+<code class="formula">L = Σᵢ |p⃗ᵢ − p⃗ᵢ₋₁|   con  |Δp⃗| = √(Δx² + Δy² + Δz²)</code>
+<h3>Energía total depositada</h3>
+<code class="formula">E_dep_total [MeV] = Σᵢ edep_MeVᵢ</code>
+<code class="formula">E_dep_total [eV]  = E_dep_total [MeV] · 10⁶</code>
+<h3>Energías de entrada y salida</h3>
+<code class="formula">E_entry = kinE_MeV del primer paso (después de ordenar por t)</code>
+<code class="formula">E_exit  = kinE_MeV del último paso</code>
+<span class="note">ℹ E_entry ≈ E_gun para el primer paso del primario en Geant4.</span>
+<hr/>
+<h2 id="mod-BetheBloch">Fórmula de Bethe-Bloch — Pérdida de Energía</h2>
+<div class="source">⟵ src/simulation/physics/BetheBlochEngine.cpp</div>
+<p>Calcula el poder de frenado (stopping power) medio de una partícula cargada</p>
+<p>pesada atravesando un material.  Referencia: PDG 2022, cap. 34, ec. 34.5.</p>
+<p>Válido para 0.1 &amp;lt; β·γ &amp;lt; ~1000 (bien sobre el umbral de producción de rayos δ).</p>
+<code class="formula">-dE/dx = K · z² · (Z/A) / β² · [ ½ · ln( 2mₑc²β²γ²Wmax / I² ) − β² ]</code>
+<code class="var">  K = 0.307075 MeV·cm²/g  ← constante de Bethe (K = 4πNₐrₑ²mₑc²)</code>
+<code class="var">  z = carga de la partícula incidente en unidades de |e|  (muón → z = 1)</code>
+<code class="var">  Z/A = número atómico efectivo / masa atómica efectiva del material</code>
+<code class="var">  β = v/c,  γ = 1/√(1−β²),  donde  γ = 1 + T/Mc²  (T = energía cinética)</code>
+<code class="var">  Wmax = 2mₑc²β²γ² / [1 + 2γmₑ/M + (mₑ/M)²]  ← transferencia máxima al electrón</code>
+<code class="var">  I = energía media de excitación del material (tabla ICRU-49)</code>
+<span class="note">ℹ Se usa el poder de frenado másico S(β) = -dE/ρdx [MeV·cm²/g];</span>
+<span class="note">ℹ el lineal se obtiene multiplicando por la densidad ρ [g/cm³]:</span>
+<code class="formula">-dE/dx [MeV/cm] = S(β) · ρ</code>
+<span class="note">ℹ Para el muón: M = 105.6583755 MeV/c², z = ±1.</span>
+<h3>Dosis absorbida (Grays)</h3>
+<p>La dosis absorbida D en un material de masa m cuando se deposita una</p>
+<p>energía ΔE es:</p>
+<code class="formula">D [Gy] = ΔE [J] / m [kg]   donde  1 MeV = 1.602176634 × 10⁻¹³ J</code>
+<span class="note">ℹ 1 Gy = 1 J/kg.  En radioterapia 1 Gy ≡ 1 Sv para radiación de bajo LET.</span>
+<span class="note">ℹ Para un paso de longitud Δx [cm] en un material de densidad ρ [g/cm³]</span>
+<span class="note">ℹ y sección transversal A = 1 cm²:</span>
+<code class="formula">m = ρ [g/cm³] · 10⁻³ [kg/g] · A [cm²] · 10⁻⁴ [m²/cm²] · Δx [cm] · 10⁻² [m/cm]</code>
+<hr/>
+<h2 id="mod-ScoringPlanes">Detección de Planos de Scoring — Análisis de Densidad</h2>
+<div class="source">⟵ src/simulation/scoring/ScoringPlaneDetector.cpp</div>
+<p>Los planos de scoring (entrada, salida, contador) se detectan automáticamente</p>
+<p>analizando la densidad de puntos a lo largo del eje longitudinal.</p>
+<h3>Histograma de densidad axial</h3>
+<p>Se divide el rango axial [s_min, s_max] en N_bins bins de ancho uniforme:</p>
+<code class="formula">Δs = (s_max − s_min) / N_bins</code>
+<p>Cada bin acumula los puntos de todas las trayectorias cuya coordenada s cae</p>
+<p>en su intervalo [s_min + k·Δs, s_min + (k+1)·Δs).</p>
+<h3>Detección de flancos (transiciones)</h3>
+<p>Sea P_peak el conteo máximo del histograma.  Se definen dos umbrales:</p>
+<code class="formula">umbral_alto = f_high · P_peak   (por defecto f_high = 0.30)</code>
+<code class="formula">umbral_bajo = f_low  · P_peak   (por defecto f_low  = 0.05)</code>
+<p>Flanco ascendente (entrada): bin k con P[k] &amp;lt; umbral_bajo  →  P[k+1] &gt; umbral_alto</p>
+<p>Flanco descendente (salida):  bin k con P[k] &gt; umbral_alto  →  P[k+1] &amp;lt; umbral_bajo</p>
+<span class="note">ℹ Sólo se marcan flancos con al menos min_crossings trayectorias (por defecto 10).</span>
+<h3>Plano contador genérico</h3>
+<p>Se añade automáticamente un plano contador en la posición media del haz:</p>
+<code class="formula">s_mid = (s_min + s_max) / 2</code>
+<p class="timestamp">Generado automáticamente el 2026-05-07 15:27:32 a partir de los bloques //!@math en el código fuente.</p>
+</body>
+</html>

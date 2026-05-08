@@ -90,9 +90,12 @@ ExportResult VisualizationManifestExporter::exportManifest(
     output << "  },\n";
     output << "  \"files\": {\n";
     output << "    \"trajectories_preview_csv\": \"" << escapeJson(manifest.trajectories_preview_csv) << "\",\n";
+    output << "    \"trajectories_preview_obj\": \"" << escapeJson(manifest.trajectories_preview_obj) << "\",\n";
     output << "    \"focal_slice_points_csv\": \"" << escapeJson(manifest.focal_slice_points_csv) << "\",\n";
     output << "    \"envelope_rings_csv\": \"" << escapeJson(manifest.envelope_rings_csv) << "\",\n";
+    output << "    \"beam_caustic_obj\": \"" << escapeJson(manifest.beam_caustic_obj) << "\",\n";
     output << "    \"beam_caustic_preview_obj\": \"" << escapeJson(manifest.beam_caustic_preview_obj) << "\",\n";
+    output << "    \"effective_lens_disk_obj\": \"" << escapeJson(manifest.effective_lens_disk_obj) << "\",\n";
     output << "    \"effective_lens_disk_preview_obj\": \"" << escapeJson(manifest.effective_lens_disk_preview_obj) << "\"\n";
     output << "  },\n";
     output << "  \"row_counts\": {\n";
@@ -109,9 +112,9 @@ ExportResult VisualizationManifestExporter::exportManifest(
     output << "    \"beam_caustic_preview_obj\": {\n";
     output << "      \"display_name\": \"Focal envelope proxy\",\n";
     output << "      \"status\": \"available\",\n";
-    output << "      \"scope\": \"focal_window\",\n";
+    output << "      \"scope\": \"full_axial_range\",\n";
     output << "      \"semantic_role\": \"boundary_surface_from_transverse_slices\",\n";
-    output << "      \"description\": \"Boundary surface reconstructed from transverse beam slices. Not physical beamline geometry.\"\n";
+    output << "      \"description\": \"Boundary surface reconstructed from axial transverse slices. Not physical beamline geometry.\"\n";
     output << "    },\n";
     output << "    \"full_beam_envelope_obj\": {\n";
     output << "      \"display_name\": \"Full beam envelope\",\n";

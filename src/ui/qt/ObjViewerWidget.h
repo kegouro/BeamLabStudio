@@ -25,6 +25,11 @@ public:
     bool axesVisible() const;
     bool measureGuidesVisible() const;
 
+    // Limit the number of polylines ('l' OBJ entries) rendered.
+    // -1 = render all (default). 0 = render none.
+    void setMaxPolylines(int max);
+    int polylineCount() const;
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
@@ -65,9 +70,14 @@ private:
                              double center_y,
                              const QRectF& content_bounds) const;
 
+    struct Polyline {
+        std::vector<int> indices{};
+    };
+
     std::vector<Vec3> vertices_{};
     std::vector<Face> faces_{};
-    std::vector<std::pair<int, int>> lines_{};
+    std::vector<Polyline> polylines_{};
+    int max_polylines_{-1};
 
     Vec3 center_{};
     Vec3 bounds_min_{};

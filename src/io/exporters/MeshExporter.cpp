@@ -92,28 +92,6 @@ ExportResult MeshExporter::exportObjPreview(const beamlab::geometry::Mesh& mesh,
         return result;
     }
 
-    double min_x = std::numeric_limits<double>::infinity();
-    double min_y = std::numeric_limits<double>::infinity();
-    double min_z = std::numeric_limits<double>::infinity();
-
-    double max_x = -std::numeric_limits<double>::infinity();
-    double max_y = -std::numeric_limits<double>::infinity();
-    double max_z = -std::numeric_limits<double>::infinity();
-
-    for (const auto& vertex : mesh.vertices) {
-        min_x = std::min(min_x, vertex.position.x);
-        min_y = std::min(min_y, vertex.position.y);
-        min_z = std::min(min_z, vertex.position.z);
-
-        max_x = std::max(max_x, vertex.position.x);
-        max_y = std::max(max_y, vertex.position.y);
-        max_z = std::max(max_z, vertex.position.z);
-    }
-
-    const double cx = 0.5 * (min_x + max_x);
-    const double cy = 0.5 * (min_y + max_y);
-    const double cz = 0.5 * (min_z + max_z);
-
     std::ofstream output(output_path);
     if (!output) {
         result.success = false;
@@ -125,14 +103,18 @@ ExportResult MeshExporter::exportObjPreview(const beamlab::geometry::Mesh& mesh,
         return result;
     }
 
-    output << "# BeamLabStudio centered/scaled preview OBJ export\n";
+    // The preview preserves world coordinates so it aligns correctly with the
+    // combined 3D scene.  The `scale` parameter is kept for API compatibility
+    // but defaults to 1.0; values other than 1.0 are only meaningful when the
+    // caller explicitly wants unit conversion (e.g. m → cm).
+    output << "# BeamLabStudio preview OBJ export (world coordinates)\n";
     output << "o " << mesh.name << "_preview\n";
 
     for (const auto& vertex : mesh.vertices) {
         output << "v "
-               << (vertex.position.x - cx) * scale << ' '
-               << (vertex.position.y - cy) * scale << ' '
-               << (vertex.position.z - cz) * scale << "\n";
+               << vertex.position.x * scale << ' '
+               << vertex.position.y * scale << ' '
+               << vertex.position.z * scale << "\n";
     }
 
     for (const auto& face : mesh.faces) {

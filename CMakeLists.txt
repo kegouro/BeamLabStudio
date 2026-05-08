@@ -61,6 +61,13 @@ add_library(beamlab_core STATIC
     src/analysis/surfaces/ContourResampler.cpp
     src/analysis/surfaces/SurfaceBuilder.cpp
     src/analysis/surfaces/LensDiskBuilder.cpp
+    # Simulation subsystem
+    src/simulation/tissue/TissueRegistry.cpp
+    src/simulation/physics/BetheBlochEngine.cpp
+    src/simulation/physics/MuonTrackSimulator.cpp
+    src/simulation/scoring/ScoringPlaneDetector.cpp
+    # Energy exporters
+    src/io/exporters/EnergyProfileExporter.cpp
 )
 
 target_include_directories(beamlab_core PUBLIC ${PROJECT_SOURCE_DIR}/src)
@@ -113,8 +120,35 @@ endif()
 option(BEAMLAB_ENABLE_QT_UI "Enable BeamLabStudio Qt UI" OFF)
 
 if(BEAMLAB_ENABLE_QT_UI)
+    set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
     find_package(Qt6 REQUIRED COMPONENTS Widgets)
+
+    # Auto-regenerate math_docs.html from //!@math blocks before each UI build.
+    # Requires Python 3.  Falls back gracefully if python3 is not found.
+    find_program(PYTHON3_EXECUTABLE python3)
+    set(MATH_DOCS_SCRIPT "${PROJECT_SOURCE_DIR}/scripts/generate_math_docs.py")
+    set(MATH_DOCS_OUTPUT "${PROJECT_SOURCE_DIR}/src/ui/qt/assets/math_docs.html")
+
+    if(PYTHON3_EXECUTABLE)
+        add_custom_command(
+            OUTPUT  "${MATH_DOCS_OUTPUT}"
+            COMMAND "${PYTHON3_EXECUTABLE}" "${MATH_DOCS_SCRIPT}"
+            DEPENDS "${MATH_DOCS_SCRIPT}"
+                    # Re-run whenever any physics/analysis source changes
+                    "${PROJECT_SOURCE_DIR}/src/simulation/physics/BetheBlochEngine.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/simulation/scoring/ScoringPlaneDetector.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/analysis/statistics/FrameStatisticsEngine.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/analysis/focus/FocusDetector.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/io/normalization/AxisFrameResolver.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/io/normalization/DatasetNormalizer.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/io/importers/Geant4CsvImporter.cpp"
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            COMMENT "Generating math_docs.html from //!@math source blocks"
+            VERBATIM
+        )
+        add_custom_target(math_docs ALL DEPENDS "${MATH_DOCS_OUTPUT}")
+    endif()
 
     add_executable(beamlab_ui
         src/ui/qt/main.cpp
@@ -123,6 +157,8 @@ if(BEAMLAB_ENABLE_QT_UI)
         src/ui/qt/ObjViewerWidget.cpp
         src/ui/qt/RunDashboardWidget.cpp
         src/ui/qt/Scene3DWidget.cpp
+        src/ui/qt/InfoWidget.cpp
+        src/ui/qt/SimulatorWidget.cpp
         src/ui/qt/StatsDashboardWidget.cpp
         src/ui/qt/resources.qrc
     )
@@ -133,6 +169,7 @@ if(BEAMLAB_ENABLE_QT_UI)
 
     target_link_libraries(beamlab_ui PRIVATE
         Qt6::Widgets
+        beamlab_core
     )
 
     target_compile_features(beamlab_ui PRIVATE cxx_std_20)

@@ -135,7 +135,7 @@ void CommandLineParser::printHelp(const std::string& executable_name)
         << "      --window <N>                    Frames/bins antes y después del foco\n\n"
         << "Superficie caústica del haz:\n"
         << "      --caustic-points <N>            Puntos por anillo axial\n"
-        << "      --caustic-preview-scale <x>     Escala visual del preview\n\n"
+        << "      --caustic-preview-scale <x>     Factor de escala de unidades OBJ preview (default 1.0)\n\n"
         << "Disco-lente efectivo:\n"
         << "      --lens-points <N>               Puntos del borde del disco\n"
         << "      --lens-layers <N>               Capas radiales del disco\n"

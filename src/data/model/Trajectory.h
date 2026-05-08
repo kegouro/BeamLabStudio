@@ -1,6 +1,7 @@
 #pragma once
 
 #include "data/ids/TrajectoryId.h"
+#include "data/model/ParticleInfo.h"
 #include "data/model/TrajectorySample.h"
 #include "data/model/TrajectorySummary.h"
 
@@ -12,6 +13,7 @@ struct Trajectory {
     TrajectoryId id{};
     std::vector<TrajectorySample> samples{};
     TrajectorySummary summary{};
+    ParticleInfo particle{};
 };
 
 } // namespace beamlab::data

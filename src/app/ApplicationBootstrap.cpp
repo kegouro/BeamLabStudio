@@ -29,6 +29,7 @@
 #include "io/exporters/MeshExporter.h"
 #include "io/exporters/ParametricSurfaceExporter.h"
 #include "io/exporters/QualityReportExporter.h"
+#include "io/exporters/EnergyProfileExporter.h"
 #include "io/exporters/VisualizationDataExporter.h"
 #include "io/exporters/VisualizationManifestExporter.h"
 #include "io/importers/ComsolCsvImporter.h"
@@ -38,12 +39,15 @@
 #include "io/importers/RootNativeImporter.h"
 #endif
 #include "io/normalization/DatasetNormalizer.h"
+#include "simulation/scoring/ScoringPlane.h"
+#include "simulation/scoring/ScoringPlaneDetector.h"
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <numbers>
 #include <stdexcept>
@@ -56,6 +60,15 @@ namespace {
 std::string pathString(const std::filesystem::path& path)
 {
     return path.lexically_normal().string();
+}
+
+double equivalentEnvelopeRadius(const beamlab::data::BeamEnvelope& envelope)
+{
+    if (!envelope.valid || envelope.area_m2 <= 0.0) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    return std::sqrt(envelope.area_m2 / std::numbers::pi);
 }
 
 
@@ -115,6 +128,7 @@ beamlab::io::AnalysisOutputManifest buildManifest(const CommandLineOptions& opti
     manifest.quality_report_csv = pathString(root / "reports" / "quality_report.csv");
     manifest.quality_report_md = pathString(root / "reports" / "quality_report.md");
     manifest.trajectories_preview_csv = pathString(root / "visualization" / "trajectories_preview.csv");
+    manifest.trajectories_preview_obj = pathString(root / "visualization" / "trajectories_preview.obj");
     manifest.focal_slice_points_csv = pathString(root / "visualization" / "focal_slice_points.csv");
     manifest.envelope_rings_csv = pathString(root / "visualization" / "envelope_rings.csv");
     manifest.visualization_manifest_json = pathString(root / "visualization" / "visualization_manifest.json");
@@ -313,7 +327,7 @@ void printFocusSummary(const beamlab::data::TrajectoryDataset& dataset,
     std::cout << "Focus axial position: "
               << std::scientific << std::setprecision(6)
               << focus.focus_reference_value << " m\n";
-    std::cout << "Minimum transverse RMS radius: "
+    std::cout << "Minimum metric value: "
               << std::scientific << std::setprecision(6)
               << focus.focus_metric_value << " m\n";
     std::cout << "Confidence proxy: "
@@ -356,52 +370,97 @@ int ApplicationBootstrap::run(int argc, char** argv)
         applyManualAxisMode(dataset, options.axis_mode);
 
         const auto frame_statistics_parameters = makeFrameStatisticsParameters(options);
+        auto geometry_statistics_parameters = frame_statistics_parameters;
+        geometry_statistics_parameters.reference_mode = beamlab::analysis::ReferenceMode::AxialBins;
 
         std::cout << "Axis mode: " << options.axis_mode << '\n';
         std::cout << "Reference mode: " << options.reference_mode << '\n';
         std::cout << "Binning mode: " << options.binning_mode << '\n';
         std::cout << "Axial bins: " << options.axial_bin_count << '\n';
+        std::cout << "Geometry focus mode: axial-bins minimum transverse radius\n";
 
         const beamlab::analysis::FrameStatisticsEngine statistics_engine{};
-        const auto frame_statistics = statistics_engine.compute(dataset, frame_statistics_parameters);
+        const auto frame_statistics =
+            statistics_engine.compute(dataset, geometry_statistics_parameters);
 
         const beamlab::analysis::FocusParameters focus_parameters{};
         const beamlab::analysis::FocusCurveBuilder curve_builder{};
         const auto curve = curve_builder.build(frame_statistics, focus_parameters);
 
         const beamlab::analysis::FocusDetector focus_detector{};
-        const auto focus = focus_detector.detect(curve, focus_parameters);
-
-        printFocusSummary(dataset, focus);
+        auto focus = focus_detector.detect(curve, focus_parameters);
 
         beamlab::analysis::SliceParameters slice_parameters{};
         slice_parameters.half_window_frames = options.half_window_frames;
         slice_parameters.max_slices = 2 * options.half_window_frames + 1;
 
         const beamlab::analysis::SlicePlanner slice_planner{};
-        const auto slice_indices = slice_planner.planFrameSlices(focus, slice_parameters);
 
         const beamlab::analysis::SliceExtractor slice_extractor{};
         const beamlab::analysis::ConvexHullEnvelopeExtractor envelope_extractor{};
         const beamlab::analysis::EnvelopeParameters envelope_parameters{};
 
+        // Extract envelopes for all axial bins so the proxy surface, focal
+        // slice and effective lens all use the same spatial reference.
+        const std::size_t total_frames =
+            focus.valid && !focus.curve.points.empty() ? focus.curve.points.size() : 0;
+
         std::vector<beamlab::data::BeamEnvelope> envelopes{};
-        envelopes.reserve(slice_indices.size());
+        envelopes.reserve(total_frames);
 
-        std::cout << "\n=== Focal slice window + envelopes ===\n";
-        std::cout << "slice_index,reference_axial_m,axial_position_m,points,boundary_points,area_m2,perimeter_m\n";
-
-        for (const auto frame_index : slice_indices) {
+        for (std::size_t frame_index = 0; frame_index < total_frames; ++frame_index) {
             const auto slice = slice_extractor.extractFrameSlice(dataset, focus.curve, frame_index);
             const auto envelope = envelope_extractor.extract(slice, envelope_parameters);
 
             envelopes.push_back(envelope);
+        }
+
+        if (!envelopes.empty() && !focus.curve.points.empty()) {
+            auto envelope_curve = focus.curve;
+            envelope_curve.metric_name = "equivalent_envelope_radius";
+
+            for (auto& point : envelope_curve.points) {
+                point.metric_value = std::numeric_limits<double>::infinity();
+                point.point_count = 0;
+            }
+
+            for (const auto& envelope : envelopes) {
+                if (envelope.slice_index >= envelope_curve.points.size()) {
+                    continue;
+                }
+
+                auto& point = envelope_curve.points[envelope.slice_index];
+                point.reference_value = envelope.axial_position_m;
+                point.metric_value = equivalentEnvelopeRadius(envelope);
+                point.point_count = envelope.input_point_count;
+            }
+
+            const auto envelope_focus = focus_detector.detect(envelope_curve, focus_parameters);
+
+            if (envelope_focus.valid && std::isfinite(envelope_focus.focus_metric_value)) {
+                focus = envelope_focus;
+            }
+        }
+
+        printFocusSummary(dataset, focus);
+
+        const auto focal_window_indices = slice_planner.planFrameSlices(focus, slice_parameters);
+
+        std::cout << "\n=== Focal slice window + envelopes ===\n";
+        std::cout << "slice_index,reference_axial_m,axial_position_m,points,boundary_points,area_m2,perimeter_m\n";
+
+        for (const auto frame_index : focal_window_indices) {
+            if (frame_index >= envelopes.size()) {
+                continue;
+            }
+
+            const auto& envelope = envelopes[frame_index];
 
             std::cout << std::scientific << std::setprecision(6)
-                      << slice.slice_index << ','
-                      << slice.reference_time_s << ','
-                      << slice.axial_position_m << ','
-                      << slice.points.size() << ','
+                      << envelope.slice_index << ','
+                      << envelope.reference_time_s << ','
+                      << envelope.axial_position_m << ','
+                      << envelope.input_point_count << ','
                       << envelope.boundary_points.size() << ','
                       << envelope.area_m2 << ','
                       << envelope.perimeter_m << '\n';
@@ -506,6 +565,16 @@ int ApplicationBootstrap::run(int argc, char** argv)
             );
 
         printExportStatus("trajectories_preview_csv", trajectories_preview_result);
+
+        const auto trajectories_obj_result =
+            visualization_exporter.exportTrajectoryPolylines(
+                dataset,
+                manifest.trajectories_preview_obj,
+                options.preview_trajectory_count,
+                options.preview_samples_per_trajectory
+            );
+
+        printExportStatus("trajectories_preview_obj", trajectories_obj_result);
 
         if (focal_envelope_it != envelopes.end()) {
             const auto focal_slice_for_visualization =
@@ -676,6 +745,47 @@ int ApplicationBootstrap::run(int argc, char** argv)
 
         printExportStatus("quality_report_csv", quality_csv_result);
         printExportStatus("quality_report_md", quality_md_result);
+
+        // ── Energy profile & scoring planes (Geant4 data) ──────────────────
+        const std::filesystem::path energy_dir(manifest.output_root);
+        const beamlab::io::EnergyProfileExporter energy_exporter{};
+
+        if (options.export_energy_profile) {
+            const auto step_profile_path =
+                pathString(energy_dir / "tables" / "energy_step_profile.csv");
+            const auto step_result =
+                energy_exporter.exportStepProfile(dataset, step_profile_path);
+            printExportStatus("energy_step_profile_csv", step_result);
+        }
+
+        if (options.export_track_summary) {
+            const auto track_summary_path =
+                pathString(energy_dir / "tables" / "energy_track_summary.csv");
+            const auto track_result =
+                energy_exporter.exportTrackSummary(dataset, track_summary_path);
+            printExportStatus("energy_track_summary_csv", track_result);
+        }
+
+        if (options.detect_scoring_planes) {
+            beamlab::simulation::ScoringPlaneDetector sp_detector{};
+            const auto scoring_planes = sp_detector.detect(dataset);
+
+            const auto sp_path =
+                pathString(energy_dir / "tables" / "scoring_planes.csv");
+            const auto sp_result =
+                energy_exporter.exportScoringPlanes(dataset, scoring_planes, sp_path);
+            printExportStatus("scoring_planes_csv", sp_result);
+
+            std::cout << "\n=== Detected scoring planes ===\n";
+            for (const auto& plane : scoring_planes) {
+                const char* role = "counter";
+                if (plane.role == beamlab::simulation::ScoringPlane::Role::Entry) role = "entry";
+                if (plane.role == beamlab::simulation::ScoringPlane::Role::Exit)  role = "exit";
+                std::cout << plane.id << "  role=" << role
+                          << "  axial=" << std::scientific << std::setprecision(4)
+                          << plane.axial_position_m << " m\n";
+            }
+        }
 
         std::cout << "\n=== Output files ===\n";
         std::cout << "summary: " << manifest.analysis_summary_md << '\n';

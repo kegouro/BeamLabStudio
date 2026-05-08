@@ -30,8 +30,10 @@ class QWidget;
 
 namespace beamlab::ui {
 
+class InfoWidget;
 class InteractiveGraphicsView;
 class RunDashboardWidget;
+class SimulatorWidget;
 class StatsDashboardWidget;
 
 class ObjViewerWidget;
@@ -118,6 +120,8 @@ private:
 
     RunDashboardWidget* dashboard_{nullptr};
     StatsDashboardWidget* statistics_dashboard_{nullptr};
+    SimulatorWidget* simulator_widget_{nullptr};
+    InfoWidget* info_widget_{nullptr};
 
     QTableWidget* trajectories_table_{nullptr};
     QTableWidget* focal_slice_table_{nullptr};
@@ -173,6 +177,11 @@ private:
     ObjViewerWidget* trajectories_obj_viewer_{nullptr};
     ObjViewerWidget* caustic_obj_viewer_{nullptr};
     ObjViewerWidget* lens_obj_viewer_{nullptr};
+
+    // Controls for the "Individual trajectories 3D" tab
+    QSlider* traj3d_count_slider_{nullptr};
+    QSpinBox* traj3d_count_spin_{nullptr};
+    QLabel* traj3d_count_label_{nullptr};
 
     QString current_manifest_path_{};
     QString current_run_dir_{};

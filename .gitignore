@@ -1,11 +1,15 @@
 # Build folders
 build/
 build-*
+build_qt/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 compile_commands.json
 .ninja*
+
+# Cache
+.cache/
 
 # IDE / Editor
 .vscode/

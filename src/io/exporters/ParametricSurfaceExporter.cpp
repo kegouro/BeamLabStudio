@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iomanip>
 #include <numbers>
+#include <vector>
 
 namespace beamlab::io {
 namespace {
@@ -86,6 +87,46 @@ beamlab::core::Vec2 centroid2D(const std::vector<beamlab::core::Vec2>& points)
     return center;
 }
 
+double equivalentRadius(const beamlab::data::BeamEnvelope& envelope)
+{
+    if (envelope.area_m2 > 0.0) {
+        return std::sqrt(envelope.area_m2 / std::numbers::pi);
+    }
+
+    const auto center = centroid2D(envelope.boundary_points);
+    double max_radius = 0.0;
+
+    for (const auto& point : envelope.boundary_points) {
+        const double du = point.x - center.x;
+        const double dv = point.y - center.y;
+        max_radius = std::max(max_radius, std::sqrt(du * du + dv * dv));
+    }
+
+    return max_radius;
+}
+
+std::vector<beamlab::core::Vec2> makeCircularBoundary(
+    const beamlab::core::Vec2& center,
+    const double radius,
+    const std::size_t point_count)
+{
+    std::vector<beamlab::core::Vec2> boundary{};
+    boundary.reserve(point_count);
+
+    for (std::size_t i = 0; i < point_count; ++i) {
+        const double theta = 2.0 * std::numbers::pi *
+                             static_cast<double>(i) /
+                             static_cast<double>(point_count);
+
+        boundary.push_back({
+            center.x + radius * std::cos(theta),
+            center.y + radius * std::sin(theta)
+        });
+    }
+
+    return boundary;
+}
+
 double lensThickness(const double rho,
                      const beamlab::analysis::LensDiskBuildParameters& parameters)
 {
@@ -154,7 +195,7 @@ ExportResult ParametricSurfaceExporter::exportCausticParametricDescription(
 
     txt << "BeamLabStudio parametric surface description\n";
     txt << "Surface: beam_caustic_surface\n";
-    txt << "Meaning: envolvente 3D del haz alrededor del foco.\n\n";
+    txt << "Meaning: envolvente 3D del haz a lo largo del eje axial.\n\n";
 
     txt << "Basis vectors in world coordinates:\n";
     writeVec3(txt, "O", axis_frame.origin);
@@ -263,17 +304,28 @@ ExportResult ParametricSurfaceExporter::exportLensDiskParametricDescription(
         return result;
     }
 
-    const beamlab::analysis::ContourResampler resampler{};
-    const auto boundary = resampler.resampleClosedContour(
-        focal_envelope.boundary_points,
+    const auto center_uv = centroid2D(focal_envelope.boundary_points);
+    const double aperture_radius = equivalentRadius(focal_envelope);
+
+    if (!std::isfinite(aperture_radius) || aperture_radius <= 0.0) {
+        result.success = false;
+        result.error = makeError(
+            beamlab::core::StatusCode::InvalidArgument,
+            "El radio del disco-lente no es válido",
+            txt_path
+        );
+        return result;
+    }
+
+    const auto boundary = makeCircularBoundary(
+        center_uv,
+        aperture_radius,
         parameters.boundary_point_count
     );
 
-    const auto center_uv = centroid2D(boundary);
-
     txt << "BeamLabStudio parametric surface description\n";
     txt << "Surface: effective_lens_disk\n";
-    txt << "Meaning: lente efectiva cerrada construida desde el contorno del slice focal.\n\n";
+    txt << "Meaning: lente efectiva circular cerrada construida desde el radio mínimo del envelope.\n\n";
 
     txt << "Basis vectors in world coordinates:\n";
     writeVec3(txt, "O", axis_frame.origin);
@@ -285,11 +337,12 @@ ExportResult ParametricSurfaceExporter::exportLensDiskParametricDescription(
     txt << "s_f = " << std::scientific << std::setprecision(12)
         << focal_envelope.axial_position_m << "\n";
     txt << "center_uv = (" << center_uv.x << ", " << center_uv.y << ")\n";
+    txt << "aperture_radius_m = " << aperture_radius << "\n";
     txt << "boundary point count N = " << boundary.size() << "\n";
     txt << "center_thickness_m = " << parameters.center_thickness_m << "\n";
     txt << "edge_thickness_m = " << parameters.edge_thickness_m << "\n\n";
 
-    txt << "The CSV stores B(theta_j) = (u_j, v_j), with theta_j = 2*pi*j/N.\n\n";
+    txt << "The CSV stores circular boundary B(theta_j) = center_uv + R*(cos(theta_j), sin(theta_j)).\n\n";
 
     txt << "For rho in [0,1] and theta in [0,2*pi):\n";
     txt << "P_uv(rho,theta) = center_uv + rho*(B(theta) - center_uv)\n";

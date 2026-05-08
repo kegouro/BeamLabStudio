@@ -7,6 +7,21 @@ from collections import defaultdict
 from pathlib import Path
 
 
+def evenly_spaced_indices(count: int, max_count: int) -> list[int]:
+    if count <= 0 or max_count <= 0:
+        return []
+
+    selected_count = min(count, max_count)
+
+    if selected_count == 1:
+        return [0]
+
+    return [
+        i * (count - 1) // (selected_count - 1)
+        for i in range(selected_count)
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Convert BeamLabStudio trajectories_preview.csv into an OBJ line cloud."
@@ -42,11 +57,26 @@ def main():
     for key in list(groups.keys()):
         groups[key].sort(key=lambda item: item[0])
 
-    total_points = sum(len(points) for points in groups.values())
+    raw_total_points = sum(len(points) for points in groups.values())
 
-    stride = 1
-    if total_points > args.max_points:
-        stride = max(1, total_points // args.max_points)
+    ordered_groups = [
+        (trajectory_id, points)
+        for trajectory_id, points in sorted(groups.items())
+        if len(points) >= 2
+    ]
+
+    if args.max_points < 2:
+        ordered_groups = []
+    elif len(ordered_groups) * 2 > args.max_points:
+        group_indices = evenly_spaced_indices(len(ordered_groups), args.max_points // 2)
+        ordered_groups = [ordered_groups[i] for i in group_indices]
+
+    selected_points = sum(len(points) for _, points in ordered_groups)
+    samples_per_trajectory = (
+        max(2, args.max_points // len(ordered_groups))
+        if ordered_groups
+        else 0
+    )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
@@ -61,19 +91,15 @@ def main():
 
         line_records = []
 
-        global_counter = 0
-
-        for trajectory_id, points in groups.items():
+        for trajectory_id, points in ordered_groups:
             indices = []
 
-            for _, x, y, z in points:
-                if global_counter % stride == 0:
-                    out.write(f"v {x:.12e} {y:.12e} {z:.12e}\n")
-                    indices.append(vertex_index)
-                    vertex_index += 1
-                    written_vertices += 1
-
-                global_counter += 1
+            for point_index in evenly_spaced_indices(len(points), samples_per_trajectory):
+                _, x, y, z = points[point_index]
+                out.write(f"v {x:.12e} {y:.12e} {z:.12e}\n")
+                indices.append(vertex_index)
+                vertex_index += 1
+                written_vertices += 1
 
             if len(indices) >= 2:
                 line_records.append(indices)
@@ -84,10 +110,12 @@ def main():
 
     print("trajectory OBJ generated")
     print(f"input groups:      {len(groups)}")
-    print(f"input points:      {total_points}")
+    print(f"output groups:     {len(ordered_groups)}")
+    print(f"input points:      {raw_total_points}")
+    print(f"selected points:   {selected_points}")
     print(f"output vertices:   {written_vertices}")
     print(f"output polylines:  {written_lines}")
-    print(f"stride:            {stride}")
+    print(f"samples/polyline:  {samples_per_trajectory}")
     print(f"output:            {args.output}")
 
 

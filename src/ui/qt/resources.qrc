@@ -10,4 +10,7 @@
     <qresource prefix="/styles">
         <file alias="beamlabstudio.qss">styles/beamlabstudio.qss</file>
     </qresource>
+    <qresource prefix="/docs">
+        <file alias="math_docs.html">assets/math_docs.html</file>
+    </qresource>
 </RCC>

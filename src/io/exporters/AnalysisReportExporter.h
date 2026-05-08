@@ -52,6 +52,7 @@ struct AnalysisOutputManifest {
     std::string quality_report_csv{};
     std::string quality_report_md{};
     std::string trajectories_preview_csv{};
+    std::string trajectories_preview_obj{};
     std::string focal_slice_points_csv{};
     std::string envelope_rings_csv{};
     std::string visualization_manifest_json{};

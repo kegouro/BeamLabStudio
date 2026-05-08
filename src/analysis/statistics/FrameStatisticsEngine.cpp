@@ -1,3 +1,29 @@
+//!@math-begin module="FrameStatistics" title="Estadísticas por Frame — Radio RMS Transversal"
+//!@math Para cada bin axial se acumulan los puntos de todas las trayectorias
+//!@math y se calculan las siguientes estadísticas transversales:
+//!@section Proyección al marco de referencia
+//!@math Sea p⃗ la posición de un muestra y ê_s, ê_u, ê_v los versores del marco:
+//!@formula s = (p⃗ − origen) · ê_s   [coordenada longitudinal]
+//!@formula u = (p⃗ − origen) · ê_u   [transversal 1]
+//!@formula v = (p⃗ − origen) · ê_v   [transversal 2]
+//!@section Momentos estadísticos (acumulador de un solo paso)
+//!@math Con N puntos en el bin:
+//!@formula ū = (1/N) Σᵢ uᵢ        [centroide u]
+//!@formula v̄ = (1/N) Σᵢ vᵢ        [centroide v]
+//!@formula σ_u² = (1/N) Σᵢ uᵢ² − ū²   [varianza u]
+//!@formula σ_v² = (1/N) Σᵢ vᵢ² − v̄²   [varianza v]
+//!@section Radio RMS transversal (proxy de foco)
+//!@formula r_rms = √(σ_u² + σ_v²)
+//!@note El foco geométrico se define como el bin con r_rms mínimo.
+//!@note Se usa el estimador sesgado (1/N) por consistencia con el proxy de foco;
+//!@note para N >> 1 la diferencia con el estimador insesgado 1/(N-1) es despreciable.
+//!@section Modos de binning
+//!@math Uniforme: bins de igual anchura Δs = (s_max − s_min) / N_bins
+//!@math Equal-count: bins con igual número de puntos (percentiles).
+//!@math Sincronizado: usa el índice de muestra como "tiempo" (requiere ≥80 % de
+//!@math trayectorias con el mismo número de pasos).
+//!@math-end
+
 #include "analysis/statistics/FrameStatisticsEngine.h"
 
 #include <algorithm>
@@ -246,12 +272,18 @@ std::vector<FrameStatistics> computeUniformAxialBins(
     std::vector<FrameStatistics> results{};
     results.reserve(bin_count);
 
-    for (const auto& acc : accumulators) {
+    for (std::size_t bin = 0; bin < accumulators.size(); ++bin) {
+        const auto& acc = accumulators[bin];
+
         if (acc.count < 3) {
             continue;
         }
 
-        results.push_back(finalizeAccumulator(acc));
+        auto stats = finalizeAccumulator(acc);
+        stats.reference_min_value = s_min + static_cast<double>(bin) * width;
+        stats.reference_max_value = stats.reference_min_value + width;
+        stats.reference_value = 0.5 * (stats.reference_min_value + stats.reference_max_value);
+        results.push_back(stats);
     }
 
     return results;

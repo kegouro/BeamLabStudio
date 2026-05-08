@@ -120,7 +120,8 @@ ExportResult VisualizationDataExporter::exportTrajectoryPreview(
 
     output << "# BeamLabStudio visualization trajectory preview\n";
     output << "# This file is downsampled for UI use. It is not the full dataset.\n";
-    output << "trajectory_index,sample_index,time_s,x_m,y_m,z_m\n";
+    output << "trajectory_index,sample_index,time_s,x_m,y_m,z_m,"
+              "edep_MeV,edep_eV,kinE_MeV,momx_MeV,momy_MeV,momz_MeV,dose_Gy\n";
 
     output << std::scientific << std::setprecision(12);
 
@@ -145,7 +146,14 @@ ExportResult VisualizationDataExporter::exportTrajectoryPreview(
                    << sample.time_s << ','
                    << sample.position_m.x << ','
                    << sample.position_m.y << ','
-                   << sample.position_m.z << '\n';
+                   << sample.position_m.z << ','
+                   << sample.edep_MeV << ','
+                   << sample.edep_eV << ','
+                   << sample.kinE_MeV << ','
+                   << sample.momentum_MeV.x << ','
+                   << sample.momentum_MeV.y << ','
+                   << sample.momentum_MeV.z << ','
+                   << sample.dose_Gy << '\n';
         }
     }
 
@@ -269,6 +277,93 @@ ExportResult VisualizationDataExporter::exportEnvelopeRings(
                    << world.y << ','
                    << world.z << '\n';
         }
+    }
+
+    result.success = true;
+    result.output_path = output_path;
+    return result;
+}
+
+ExportResult VisualizationDataExporter::exportTrajectoryPolylines(
+    const beamlab::data::TrajectoryDataset& dataset,
+    const std::string& output_path,
+    const std::size_t max_trajectories,
+    const std::size_t max_samples_per_trajectory) const
+{
+    ExportResult result{};
+
+    if (dataset.trajectories.empty()) {
+        result.success = false;
+        result.error = makeError(
+            beamlab::core::StatusCode::InvalidArgument,
+            "No hay trayectorias para exportar como OBJ",
+            output_path
+        );
+        return result;
+    }
+
+    ensureParentDirectory(output_path);
+    std::ofstream output(output_path);
+
+    if (!output) {
+        result.success = false;
+        result.error = makeError(
+            beamlab::core::StatusCode::IOError,
+            "No se pudo crear trajectories_preview.obj",
+            output_path
+        );
+        return result;
+    }
+
+    output << "# BeamLabStudio trajectory polylines (world coordinates)\n";
+    output << "# One 'l' entry per trajectory. Vertex order matches trajectory time order.\n";
+    output << std::scientific << std::setprecision(12);
+
+    const auto trajectory_indices = evenlySpacedIndices(
+        dataset.trajectories.size(),
+        max_trajectories
+    );
+
+    // Pass 1: write all vertices, collect polyline vertex ranges.
+    std::vector<std::pair<std::size_t, std::size_t>> polyline_ranges; // [first_v, count]
+    polyline_ranges.reserve(trajectory_indices.size());
+    std::size_t vertex_counter = 0;
+
+    for (const auto trajectory_index : trajectory_indices) {
+        const auto& trajectory = dataset.trajectories[trajectory_index];
+
+        const auto sample_indices = evenlySpacedIndices(
+            trajectory.samples.size(),
+            max_samples_per_trajectory
+        );
+
+        if (sample_indices.size() < 2) {
+            polyline_ranges.push_back({0, 0});
+            continue;
+        }
+
+        const std::size_t first_vertex = vertex_counter + 1; // OBJ is 1-based
+        for (const auto sample_index : sample_indices) {
+            const auto& sample = trajectory.samples[sample_index];
+            output << "v "
+                   << sample.position_m.x << ' '
+                   << sample.position_m.y << ' '
+                   << sample.position_m.z << '\n';
+            ++vertex_counter;
+        }
+        polyline_ranges.push_back({first_vertex, sample_indices.size()});
+    }
+
+    // Pass 2: write polyline entries.
+    for (const auto& [first_v, count] : polyline_ranges) {
+        if (count < 2) {
+            continue;
+        }
+        output << 'l';
+        for (std::size_t i = 0; i < count; ++i) {
+            output << ' ' << (first_v + i);
+        }
+        output << '\n';
     }
 
     result.success = true;

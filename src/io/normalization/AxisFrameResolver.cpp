@@ -1,3 +1,25 @@
+//!@math-begin module="AxisFrame" title="Resolución del Marco de Referencia del Haz"
+//!@math El marco de referencia (axis frame) transforma coordenadas de laboratorio
+//!@math (x, y, z) a coordenadas del haz (s, u, v), donde s es el eje longitudinal.
+//!@section Detección automática del eje longitudinal
+//!@math Se calcula el rango de cada coordenada sobre todos los puntos del dataset:
+//!@formula Rₓ = max(x) − min(x),   R_y = max(y) − min(y),   R_z = max(z) − min(z)
+//!@math El eje con mayor rango es el eje longitudinal del haz:
+//!@formula ê_s = ê_z  si  R_z ≥ R_x  y  R_z ≥ R_y   (caso más común en Geant4)
+//!@section Signo del eje longitudinal
+//!@math Se suma el vector (último_punto − primer_punto) de cada trayectoria:
+//!@formula Σ_z = Σᵢ ( z_final_i − z_inicial_i )
+//!@formula signo(ê_s) = +1  si  Σ_z ≥ 0,  −1  si  Σ_z &lt; 0
+//!@note Esto garantiza que ê_s apunta en la dirección de propagación del haz.
+//!@section Marco resultante
+//!@math Para eje Z positivo (caso del CSV de muones):
+//!@formula ê_s = (0, 0, +1),   ê_u = (1, 0, 0),   ê_v = (0, 1, 0)
+//!@section Confianza del marco
+//!@formula confidence = R_max / (Rₓ + R_y + R_z)   ∈ [1/3, 1]
+//!@note confidence → 1 cuando el haz es puramente axial; → 1/3 cuando las tres
+//!@note extensiones son iguales (ambigüedad).
+//!@math-end
+
 #include "io/normalization/AxisFrameResolver.h"
 
 #include <algorithm>
