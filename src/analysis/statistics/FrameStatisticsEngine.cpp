@@ -154,6 +154,14 @@ std::vector<ProjectedSample> projectSamples(const beamlab::data::TrajectoryDatas
             p.u = dot(relative, dataset.axis_frame.transverse_u);
             p.v = dot(relative, dataset.axis_frame.transverse_v);
 
+            // Drop non-finite projections.  A NaN here would land in a
+            // negative bin (floor((NaN - s_min) / width) is implementation
+            // defined and typically produces a huge unsigned value) and
+            // poison every downstream statistic.  Filter at the source.
+            if (!std::isfinite(p.s) || !std::isfinite(p.u) || !std::isfinite(p.v)) {
+                continue;
+            }
+
             s_min = std::min(s_min, p.s);
             s_max = std::max(s_max, p.s);
 
@@ -243,7 +251,12 @@ std::vector<FrameStatistics> computeUniformAxialBins(
 
     const auto projected = projectSamples(dataset, s_min, s_max);
 
-    if (projected.empty() || !(s_max > s_min)) {
+    // The (s_max > s_min) test below is also false when either bound is NaN,
+    // but the explicit isfinite guard documents the intent and protects
+    // against future refactors that loosen the comparison.
+    if (projected.empty() ||
+        !std::isfinite(s_min) || !std::isfinite(s_max) ||
+        !(s_max > s_min)) {
         return {};
     }
 
@@ -298,7 +311,9 @@ std::vector<FrameStatistics> computeEqualCountAxialBins(
 
     auto projected = projectSamples(dataset, s_min, s_max);
 
-    if (projected.empty() || !(s_max > s_min)) {
+    if (projected.empty() ||
+        !std::isfinite(s_min) || !std::isfinite(s_max) ||
+        !(s_max > s_min)) {
         return {};
     }
 

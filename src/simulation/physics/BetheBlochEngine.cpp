@@ -25,6 +25,8 @@
 
 #include "simulation/physics/BetheBlochEngine.h"
 
+#include "core/units/BeamGeometry.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -126,21 +128,26 @@ double BetheBlochEngine::dose_Gy(const double edep_MeV, const double mass_kg)
 
 double BetheBlochEngine::dosePerStep_Gy(const double edep_MeV,
                                          const TissueMaterial& material,
-                                         const double dx_cm) const
+                                         const double dx_cm,
+                                         const double beam_radius_cm) const
 {
     if (dx_cm <= 0.0 || edep_MeV <= 0.0) {
         return 0.0;
     }
 
-    // Treat the step as a thin slab: mass = density × volume = ρ × (A × dx)
-    // We use A = 1 cm² as the nominal cross-section per track (unit dose).
-    // This gives dose per unit area (Gy per cm² of beam).
-    // For absolute dose, the user must supply the actual beam cross-section.
-    // Here we return the dose for a 1 cm² column.
-    const double dx_m = dx_cm * 0.01;
-    const double volume_m3 = 1.0e-4 * dx_m; // 1 cm² × dx in m³
+    // Treat the step as a thin cylinder of length dx and radius r:
+    //   mass = ρ · π · r² · dx
+    // Default r = √(1/π) gives π·r² = 1 cm², matching the legacy
+    // "1 cm² nominal cross-section" convention bit-for-bit.
+    const double r_cm = (beam_radius_cm > 0.0)
+        ? beam_radius_cm
+        : beamlab::core::units::kUnitAreaRadius_cm;
+    const double area_cm2     = M_PI * r_cm * r_cm;
+    const double area_m2      = area_cm2 * 1.0e-4;
+    const double dx_m         = dx_cm * 0.01;
+    const double volume_m3    = area_m2 * dx_m;
     const double density_kg_m3 = material.density_g_cm3 * 1000.0;
-    const double mass_kg = density_kg_m3 * volume_m3;
+    const double mass_kg      = density_kg_m3 * volume_m3;
 
     return dose_Gy(edep_MeV, mass_kg);
 }

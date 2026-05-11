@@ -35,12 +35,16 @@ public:
     // Requires the voxel mass in kg.
     [[nodiscard]] static double dose_Gy(double edep_MeV, double mass_kg);
 
-    // Dose deposited (Gy) given the energy lost in a path of dx_cm in `material`.
-    // Assumes the energy is deposited uniformly in a cylinder of radius `r_cm`
-    // along the step. If r_cm is 0, uses the linear stopping-power model directly.
+    // Dose deposited (Gy) given the energy lost in a path of dx_cm in
+    // `material`, treating the step as a thin cylinder of radius
+    // `beam_radius_cm`.  When beam_radius_cm <= 0, falls back to
+    // beamlab::core::units::kUnitAreaRadius_cm (√(1/π)), giving a 1 cm²
+    // cross-section — the legacy convention preserved for backward
+    // compatibility with existing exports.
     [[nodiscard]] double dosePerStep_Gy(double edep_MeV,
                                          const TissueMaterial& material,
-                                         double dx_cm) const;
+                                         double dx_cm,
+                                         double beam_radius_cm = 0.0) const;
 };
 
 } // namespace beamlab::simulation

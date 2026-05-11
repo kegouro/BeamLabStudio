@@ -109,8 +109,16 @@ SimulationResult MuonTrackSimulator::simulate(
 
             // Inside a slab: recompute energy loss using Bethe-Bloch
             const double step_cm = step_m * 100.0;
-            const double eloss_MeV = physics_.energyLoss_MeV(
+            double eloss_MeV = physics_.energyLoss_MeV(
                 current_kinE, mass_MeV, charge, slab->material, step_cm);
+
+            // Energy-conservation guard: BetheBloch's std::min already caps
+            // eloss at current_kinE, but we still defend against NaN/negative
+            // values that could appear if the material has degenerate
+            // parameters or if a future refactor changes the engine.
+            if (!std::isfinite(eloss_MeV) || eloss_MeV < 0.0) {
+                eloss_MeV = 0.0;
+            }
 
             sample.edep_MeV = eloss_MeV;
             sample.edep_eV  = eloss_MeV * 1.0e6;
