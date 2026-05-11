@@ -31,12 +31,14 @@ add_library(beamlab_core STATIC
     src/app/ApplicationBootstrap.cpp
     src/app/ServiceRegistry.cpp
     src/app/CommandLineOptions.cpp
+    src/core/foundation/NumericGuards.cpp
     src/io/detect/FileProbe.cpp
     src/io/detect/ImportRouter.cpp
     src/io/parsing/DelimiterDetector.cpp
     src/io/parsing/TableHeaderAnalyzer.cpp
     src/io/parsing/ColumnTypeInferer.cpp
     src/io/parsing/ComsolHeaderParser.cpp
+    src/io/parsing/Geant4HeaderRecognizer.cpp
     src/io/importers/DelimitedTableImporter.cpp
     src/io/importers/ComsolCsvImporter.cpp
     src/io/importers/Geant4CsvImporter.cpp
@@ -122,7 +124,7 @@ option(BEAMLAB_ENABLE_QT_UI "Enable BeamLabStudio Qt UI" OFF)
 if(BEAMLAB_ENABLE_QT_UI)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
-    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent)
 
     # Auto-regenerate math_docs.html from //!@math blocks before each UI build.
     # Requires Python 3.  Falls back gracefully if python3 is not found.
@@ -150,6 +152,43 @@ if(BEAMLAB_ENABLE_QT_UI)
         add_custom_target(math_docs ALL DEPENDS "${MATH_DOCS_OUTPUT}")
     endif()
 
+    # ── Biological simulator module ─────────────────────────────────────────
+    # Self-contained; no existing code was modified.
+    add_library(beamlab_biosim STATIC
+        # Materials
+        src/biosim/materials/BioMaterialLibrary.cpp
+        src/biosim/materials/BioMaterialValidator.cpp
+        # Physics
+        src/biosim/physics/ParticleLibrary.cpp
+        src/biosim/physics/StoppingPowerEngine.cpp
+        src/biosim/physics/BraggPeakCalculator.cpp
+        src/biosim/physics/EnergyStraggling.cpp
+        # Geometry
+        src/biosim/geometry/PhantomLibrary.cpp
+        # Core (pipeline)
+        src/biosim/core/EnergyScaleConverter.cpp
+        src/biosim/core/BioSimRunner.cpp
+        # UI widgets (require Qt)
+        src/biosim/ui/qt/EnergyColorMapper.cpp
+        src/biosim/ui/qt/EnergyScaleBar.cpp
+        src/biosim/ui/qt/BioViewport3D.cpp
+        src/biosim/ui/qt/TrajectoryInspectorPanel.cpp
+        src/biosim/ui/qt/SlabEditor3D.cpp
+        src/biosim/ui/qt/BioSimWidget.cpp
+        src/biosim/ui/qt/MaterialEditorDialog.cpp
+        src/biosim/ui/qt/PhantomPresetPanel.cpp
+    )
+
+    target_include_directories(beamlab_biosim PUBLIC ${PROJECT_SOURCE_DIR}/src)
+
+    target_link_libraries(beamlab_biosim PUBLIC
+        Qt6::Widgets
+        Qt6::Concurrent
+        beamlab_core
+    )
+
+    target_compile_features(beamlab_biosim PRIVATE cxx_std_20)
+
     add_executable(beamlab_ui
         src/ui/qt/main.cpp
         src/ui/qt/InteractiveGraphicsView.cpp
@@ -158,7 +197,6 @@ if(BEAMLAB_ENABLE_QT_UI)
         src/ui/qt/RunDashboardWidget.cpp
         src/ui/qt/Scene3DWidget.cpp
         src/ui/qt/InfoWidget.cpp
-        src/ui/qt/SimulatorWidget.cpp
         src/ui/qt/StatsDashboardWidget.cpp
         src/ui/qt/resources.qrc
     )
@@ -169,7 +207,9 @@ if(BEAMLAB_ENABLE_QT_UI)
 
     target_link_libraries(beamlab_ui PRIVATE
         Qt6::Widgets
+        Qt6::Concurrent
         beamlab_core
+        beamlab_biosim
     )
 
     target_compile_features(beamlab_ui PRIVATE cxx_std_20)

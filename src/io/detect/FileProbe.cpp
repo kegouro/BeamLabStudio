@@ -1,10 +1,13 @@
 #include "io/detect/FileProbe.h"
 
+#include "io/parsing/Geant4HeaderRecognizer.h"
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 namespace beamlab::io {
 namespace {
@@ -16,52 +19,31 @@ std::string toLower(std::string text)
     return text;
 }
 
-bool containsComsolTrajectoryHeader(const std::string& preview)
+// Run the strict tokenized recognizers on each line of the preview separately.
+// The legacy implementation concatenated all preview lines into one big string
+// and ran substring matches on it; that produced false positives whenever the
+// individual column names happened to appear anywhere in any line (data, units
+// row, comments, etc.).  Header recognition is meaningful per-line.
+bool anyLineMatches(const std::vector<std::string>& lines,
+                    bool (*predicate)(std::string_view))
 {
-    const auto text = toLower(preview);
-
-    const bool has_qx = text.find("qx") != std::string::npos;
-    const bool has_qy = text.find("qy") != std::string::npos;
-    const bool has_qz = text.find("qz") != std::string::npos;
-    const bool has_pidx = text.find("pidx") != std::string::npos ||
-                          text.find("particle") != std::string::npos;
-    const bool has_time = text.find("t") != std::string::npos;
-
-    return has_qx && has_qy && has_qz && has_pidx && has_time;
+    for (const auto& line : lines) {
+        if (predicate(line)) return true;
+    }
+    return false;
 }
 
-bool containsGeant4TrajectoryHeader(const std::string& preview)
-{
-    const auto text = toLower(preview);
-
-    const bool has_position =
-        text.find("x_cm") != std::string::npos &&
-        text.find("y_cm") != std::string::npos &&
-        text.find("z_cm") != std::string::npos;
-
-    const bool has_step_quantities =
-        text.find("time_ns") != std::string::npos &&
-        text.find("trackid") != std::string::npos &&
-        text.find("eventid") != std::string::npos;
-
-    const bool has_geant4_like_payload =
-        text.find("edep_mev") != std::string::npos ||
-        text.find("kine_mev") != std::string::npos ||
-        text.find("momx_mev") != std::string::npos;
-
-    return has_position && has_step_quantities && has_geant4_like_payload;
-}
-
-FormatSignature guessFormat(const std::string& extension, const std::string& preview)
+FormatSignature guessFormat(const std::string& extension,
+                            const std::vector<std::string>& preview_lines)
 {
     const auto ext = toLower(extension);
 
     if (ext == ".csv" || ext == ".tsv" || ext == ".txt") {
-        if (containsGeant4TrajectoryHeader(preview)) {
+        if (anyLineMatches(preview_lines, &Geant4HeaderRecognizer::looksLikeHeader)) {
             return FormatSignature::Geant4Csv;
         }
 
-        if (containsComsolTrajectoryHeader(preview)) {
+        if (anyLineMatches(preview_lines, &ComsolHeaderRecognizer::looksLikeHeader)) {
             return FormatSignature::ComsolCsv;
         }
 
@@ -107,7 +89,6 @@ ProbeResult FileProbe::probe(const std::string& file_path) const
     result.readable = true;
 
     std::string line{};
-    std::string combined_preview{};
 
     for (int i = 0; i < 80 && std::getline(input, line); ++i) {
         if (i == 0) {
@@ -115,11 +96,9 @@ ProbeResult FileProbe::probe(const std::string& file_path) const
         }
 
         result.preview_lines.push_back(line);
-        combined_preview += line;
-        combined_preview += '\n';
     }
 
-    result.detected_format = guessFormat(result.extension, combined_preview);
+    result.detected_format = guessFormat(result.extension, result.preview_lines);
     return result;
 }
 

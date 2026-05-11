@@ -22,11 +22,13 @@
 
 #include "io/importers/Geant4CsvImporter.h"
 
+#include "core/foundation/NumericGuards.h"
 #include "data/ids/SampleId.h"
 #include "data/ids/TrajectoryId.h"
 #include "data/model/Trajectory.h"
 #include "data/model/TrajectorySample.h"
 #include "io/parsing/DelimiterDetector.h"
+#include "io/parsing/Geant4HeaderRecognizer.h"
 
 #include <cmath>
 #include <algorithm>
@@ -34,6 +36,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -105,40 +108,21 @@ std::vector<std::string> splitLine(const std::string& line, const char delimiter
 
 std::optional<double> parseDouble(const std::string& token)
 {
-    try {
-        std::size_t processed = 0;
-        const double value = std::stod(token, &processed);
-
-        if (processed == 0) {
-            return std::nullopt;
-        }
-
-        return value;
-    } catch (...) {
-        return std::nullopt;
-    }
+    return beamlab::core::tryParseFiniteDouble(token);
 }
 
 std::optional<std::int64_t> parseInteger(const std::string& token)
 {
-    const auto value = parseDouble(token);
+    const auto value = beamlab::core::tryParseInteger(token);
     if (!value.has_value()) {
         return std::nullopt;
     }
-
-    return static_cast<std::int64_t>(std::llround(value.value()));
+    return static_cast<std::int64_t>(*value);
 }
 
 bool looksLikeGeant4Header(const std::string& line)
 {
-    const auto text = lower(line);
-
-    return text.find("x_cm") != std::string::npos &&
-           text.find("y_cm") != std::string::npos &&
-           text.find("z_cm") != std::string::npos &&
-           text.find("time_ns") != std::string::npos &&
-           text.find("trackid") != std::string::npos &&
-           text.find("eventid") != std::string::npos;
+    return Geant4HeaderRecognizer::looksLikeHeader(line);
 }
 
 Geant4Columns detectColumns(const std::vector<std::string>& header)
@@ -192,13 +176,33 @@ Geant4Columns detectColumns(const std::vector<std::string>& header)
     return columns;
 }
 
-std::uint64_t makeUniqueTrajectoryId(const std::int64_t event_id,
-                                     const std::int64_t track_id)
+// Invariant: at most kMaxTracksPerEvent tracks per event.  The unique
+// trajectory id packs (event, track) into a single 64-bit slot:
+//   unique_id = event * kMaxTracksPerEvent + track + 1
+// If track >= kMaxTracksPerEvent this packing overflows into the next
+// event's slot — silently colliding two trajectories.  We detect the
+// violation and return std::nullopt; the caller logs a warning and
+// skips the row instead of producing fraudulent data.
+constexpr std::uint64_t kMaxTracksPerEvent = 10'000'000ULL;
+
+std::optional<std::uint64_t> makeUniqueTrajectoryId(
+    const std::int64_t event_id,
+    const std::int64_t track_id)
 {
     const auto safe_event = event_id < 0 ? 0 : static_cast<std::uint64_t>(event_id);
     const auto safe_track = track_id < 0 ? 0 : static_cast<std::uint64_t>(track_id);
 
-    return safe_event * 10000000ULL + safe_track + 1ULL;
+    if (safe_track >= kMaxTracksPerEvent) {
+        return std::nullopt;
+    }
+
+    constexpr std::uint64_t kMaxEvent =
+        std::numeric_limits<std::uint64_t>::max() / kMaxTracksPerEvent;
+    if (safe_event > kMaxEvent) {
+        return std::nullopt;
+    }
+
+    return safe_event * kMaxTracksPerEvent + safe_track + 1ULL;
 }
 
 } // namespace
@@ -348,9 +352,30 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
 
     std::uint64_t sample_counter = 1;
     std::size_t parsed_rows = 0;
-    std::size_t skipped_rows = 0;
 
+    // Aggregate per-reason warning counts.  We preserve the line number of the
+    // first occurrence of each kind so the user can navigate to it; further
+    // occurrences are summarised in a single warning record at the end.
+    struct DropReasonStats {
+        std::size_t count{0};
+        std::size_t first_line{0};
+    };
+    std::unordered_map<std::string, DropReasonStats> drop_stats;
+    const auto recordDrop = [&](const std::string& reason, std::size_t line_no) {
+        auto& s = drop_stats[reason];
+        if (s.count == 0) s.first_line = line_no;
+        ++s.count;
+    };
+
+    // Header was consumed via std::getline above; subsequent reads are the
+    // body.  We seek the file line number relative to the start so users can
+    // jump straight to the offending row in their editor.
+    // Track the running line number; the header consumed before this loop
+    // determines the offset.  After the header read, input.tellg() can fail on
+    // some text-mode streams, so we count lines explicitly.
+    std::size_t line_number = 1; // header line itself
     while (std::getline(input, line)) {
+        ++line_number;
         if (line.empty()) {
             continue;
         }
@@ -362,7 +387,7 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
                       columns.time_ns, columns.trackID, columns.eventID}) + 1;
 
         if (tokens.size() < required_size) {
-            ++skipped_rows;
+            recordDrop("too few columns", line_number);
             continue;
         }
 
@@ -374,11 +399,25 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         const auto event_id = parseInteger(tokens[columns.eventID]);
 
         if (!x_cm || !y_cm || !z_cm || !time_ns || !track_id || !event_id) {
-            ++skipped_rows;
+            recordDrop("non-finite or non-numeric mandatory field", line_number);
             continue;
         }
 
-        const auto unique_id = makeUniqueTrajectoryId(*event_id, *track_id);
+        // Physical-domain validation.  Geant4 should never emit negative
+        // time or negative energies; if present, the file is corrupted or has
+        // been edited.  Refuse the row instead of laundering it into the
+        // dataset.
+        if (*time_ns < 0.0) {
+            recordDrop("time_ns < 0", line_number);
+            continue;
+        }
+
+        const auto unique_id_opt = makeUniqueTrajectoryId(*event_id, *track_id);
+        if (!unique_id_opt) {
+            recordDrop("trackID exceeds kMaxTracksPerEvent or eventID overflow", line_number);
+            continue;
+        }
+        const auto unique_id = *unique_id_opt;
 
         auto index_it = trajectory_index_by_id.find(unique_id);
         if (index_it == trajectory_index_by_id.end()) {
@@ -393,17 +432,44 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
 
         auto& trajectory = dataset.trajectories[index_it->second];
 
-        // Read optional physics columns (may be absent in minimal exports)
-        const auto edep_opt = (columns.edep_MeV < tokens.size())
-            ? parseDouble(tokens[columns.edep_MeV]) : std::optional<double>{};
-        const auto kine_opt = (columns.kinE_MeV < tokens.size())
-            ? parseDouble(tokens[columns.kinE_MeV]) : std::optional<double>{};
-        const auto momx_opt = (columns.momx_MeV < tokens.size())
-            ? parseDouble(tokens[columns.momx_MeV]) : std::optional<double>{};
-        const auto momy_opt = (columns.momy_MeV < tokens.size())
-            ? parseDouble(tokens[columns.momy_MeV]) : std::optional<double>{};
-        const auto momz_opt = (columns.momz_MeV < tokens.size())
-            ? parseDouble(tokens[columns.momz_MeV]) : std::optional<double>{};
+        // Read optional physics columns.  Distinguish three states:
+        //   1. column index out of range  → field truly absent (use 0)
+        //   2. column present, token blank → field absent in this row (use 0)
+        //   3. column present, token non-blank but unparseable → row corrupt
+        //      (drop with diagnostic — never silently coerce to 0)
+        const auto readOptionalNumeric = [&](std::size_t col_idx,
+                                              const char* col_name,
+                                              std::optional<double>& out) -> bool {
+            if (col_idx >= tokens.size()) return true;          // absent column
+            const auto& tok = tokens[col_idx];
+            if (tok.empty()) return true;                        // blank cell
+            auto v = beamlab::core::tryParseFiniteDouble(tok);
+            if (!v) {
+                recordDrop(std::string{col_name} + " not finite/parseable",
+                           line_number);
+                return false;
+            }
+            out = v;
+            return true;
+        };
+
+        std::optional<double> edep_opt, kine_opt, momx_opt, momy_opt, momz_opt;
+        if (!readOptionalNumeric(columns.edep_MeV, "edep_MeV", edep_opt)) continue;
+        if (!readOptionalNumeric(columns.kinE_MeV, "kinE_MeV", kine_opt)) continue;
+        if (!readOptionalNumeric(columns.momx_MeV, "momx_MeV", momx_opt)) continue;
+        if (!readOptionalNumeric(columns.momy_MeV, "momy_MeV", momy_opt)) continue;
+        if (!readOptionalNumeric(columns.momz_MeV, "momz_MeV", momz_opt)) continue;
+
+        // Reject negative energies — these are not physically meaningful and
+        // would silently bias dose/energy aggregates downstream.
+        if (edep_opt && *edep_opt < 0.0) {
+            recordDrop("edep_MeV < 0", line_number);
+            continue;
+        }
+        if (kine_opt && *kine_opt < 0.0) {
+            recordDrop("kinE_MeV < 0", line_number);
+            continue;
+        }
 
         beamlab::data::TrajectorySample sample{};
         sample.id = beamlab::data::SampleId{sample_counter++};
@@ -456,12 +522,22 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         return result;
     }
 
-    if (skipped_rows > 0) {
+    if (!drop_stats.empty()) {
+        std::size_t total_skipped = 0;
+        for (const auto& [reason, stats] : drop_stats) {
+            total_skipped += stats.count;
+            result.warnings.push_back(beamlab::core::Warning{
+                .severity = beamlab::core::Severity::Warning,
+                .message = "Filas Geant4 CSV ignoradas: " + reason,
+                .details = "count=" + std::to_string(stats.count) +
+                           ", first_line=" + std::to_string(stats.first_line)
+            });
+        }
         result.warnings.push_back(beamlab::core::Warning{
-            .severity = beamlab::core::Severity::Warning,
-            .message = "Algunas filas fueron ignoradas durante la importación Geant4 CSV",
+            .severity = beamlab::core::Severity::Info,
+            .message = "Resumen de importación Geant4 CSV",
             .details = "parsed_rows=" + std::to_string(parsed_rows) +
-                       ", skipped_rows=" + std::to_string(skipped_rows)
+                       ", skipped_rows=" + std::to_string(total_skipped)
         });
     }
 

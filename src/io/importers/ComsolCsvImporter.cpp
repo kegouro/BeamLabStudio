@@ -1,5 +1,6 @@
 #include "io/importers/ComsolCsvImporter.h"
 
+#include "core/foundation/NumericGuards.h"
 #include "io/parsing/ComsolHeaderParser.h"
 #include "io/parsing/DelimiterDetector.h"
 
@@ -66,18 +67,7 @@ std::vector<std::string> splitCsvLine(const std::string& line, const char delimi
 
 std::optional<double> parseDouble(const std::string& token)
 {
-    try {
-        std::size_t processed = 0;
-        const double value = std::stod(token, &processed);
-
-        if (processed == 0) {
-            return std::nullopt;
-        }
-
-        return value;
-    } catch (...) {
-        return std::nullopt;
-    }
+    return beamlab::core::tryParseFiniteDouble(token);
 }
 
 bool containsToken(const std::string& text, const std::string& token)
