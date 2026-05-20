@@ -8,6 +8,7 @@ add_executable(beamlab_tests
     test_Geant4CsvImporter.cpp
     test_StoppingPowerEngine.cpp
     test_SurfaceBuilder.cpp
+    test_SampleStorage.cpp
 )
 
 target_include_directories(beamlab_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)

@@ -45,6 +45,7 @@ add_library(beamlab_core STATIC
     src/app/CommandLineOptions.cpp
     src/core/foundation/NumericGuards.cpp
     src/core/config/ConfigLoader.cpp
+    src/core/storage/InMemoryStorage.cpp
     src/io/detect/FileProbe.cpp
     src/io/detect/ImportRouter.cpp
     src/io/parsing/DelimiterDetector.cpp
@@ -85,6 +86,7 @@ add_library(beamlab_core STATIC
 
 target_include_directories(beamlab_core PUBLIC ${PROJECT_SOURCE_DIR}/src)
 FetchContent_MakeAvailable(nlohmann_json)
+
 target_link_libraries(beamlab_core PUBLIC nlohmann_json::nlohmann_json)
 
 add_executable(beamlab
