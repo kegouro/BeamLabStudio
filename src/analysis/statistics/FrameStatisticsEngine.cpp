@@ -244,13 +244,11 @@ std::vector<FrameStatistics> computeSynchronizedFrames(
 }
 
 std::vector<FrameStatistics> computeUniformAxialBins(
-    const beamlab::data::TrajectoryDataset& dataset,
+    const std::vector<ProjectedSample>& projected,
+    const double s_min,
+    const double s_max,
     const std::size_t requested_bin_count)
 {
-    double s_min = 0.0;
-    double s_max = 0.0;
-
-    const auto projected = projectSamples(dataset, s_min, s_max);
 
     // The (s_max > s_min) test below is also false when either bound is NaN,
     // but the explicit isfinite guard documents the intent and protects
@@ -304,13 +302,11 @@ std::vector<FrameStatistics> computeUniformAxialBins(
 }
 
 std::vector<FrameStatistics> computeEqualCountAxialBins(
-    const beamlab::data::TrajectoryDataset& dataset,
+    std::vector<ProjectedSample>& projected,
+    const double s_min,
+    const double s_max,
     const std::size_t requested_bin_count)
 {
-    double s_min = 0.0;
-    double s_max = 0.0;
-
-    auto projected = projectSamples(dataset, s_min, s_max);
 
     if (projected.empty() ||
         !std::isfinite(s_min) || !std::isfinite(s_max) ||
@@ -376,11 +372,15 @@ std::vector<FrameStatistics> FrameStatisticsEngine::compute(
         return computeSynchronizedFrames(dataset, reference_sample_count);
     }
 
+    double s_min = 0.0;
+    double s_max = 0.0;
+    auto projected = projectSamples(dataset, s_min, s_max);
+
     if (parameters.axial_binning_mode == AxialBinningMode::EqualCount) {
-        return computeEqualCountAxialBins(dataset, parameters.axial_bin_count);
+        return computeEqualCountAxialBins(projected, s_min, s_max, parameters.axial_bin_count);
     }
 
-    return computeUniformAxialBins(dataset, parameters.axial_bin_count);
+    return computeUniformAxialBins(projected, s_min, s_max, parameters.axial_bin_count);
 }
 
 } // namespace beamlab::analysis
