@@ -18,7 +18,7 @@ SqliteStorage::SqliteStorage(const std::string& dbPath)
     }
     exec("PRAGMA journal_mode=WAL");
     exec("PRAGMA synchronous=OFF");         // Fast bulk import — restored in finalizeIndices()
-    exec("PRAGMA cache_size=-64000");       // 64 MB page cache
+    exec("PRAGMA cache_size=-16000");       // 16 MB page cache (was 64MB, reduced for <2GB RAM target)
     exec("PRAGMA locking_mode=EXCLUSIVE");  // Single writer, no lock overhead
     ensureTable();
 }
