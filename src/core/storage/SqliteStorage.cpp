@@ -16,6 +16,9 @@ SqliteStorage::SqliteStorage(const std::string& dbPath)
     if (sqlite3_open(dbPath_.c_str(), &db_) != SQLITE_OK) {
         throw std::runtime_error("Failed to open SQLite database: " + dbPath_);
     }
+    exec("PRAGMA journal_mode=WAL");
+    exec("PRAGMA synchronous=NORMAL");
+    exec("PRAGMA cache_size=-64000"); // 64 MB page cache
     ensureTable();
 }
 

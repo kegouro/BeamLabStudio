@@ -51,7 +51,7 @@ private:
     std::string dbPath_;
     std::string currentTrajectoryId_;
     uint64_t pendingCount_{0};
-    static constexpr uint64_t kFlushBatchSize = 1000;
+    static constexpr uint64_t kFlushBatchSize = 50000;
 };
 
 } // namespace beamlab::core
