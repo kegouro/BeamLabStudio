@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "storage": {
+    "sqlite_threshold_mb": 100,
+    "batch_size": 100000,
+    "db_in_memory": false
+  },
+  "import": {
+    "max_preview_lines": 12,
+    "strict_header": true,
+    "expected_columns": [
+      "x_cm", "y_cm", "z_cm", "edep_MeV", "kinE_MeV",
+      "momx_MeV", "momy_MeV", "momz_MeV", "time_ns",
+      "trackID", "parentID", "eventID", "pdg",
+      "particleName", "source_file"
+    ]
+  },
+  "analysis": {
+    "axis_mode": "auto",
+    "reference_mode": "auto",
+    "binning": {
+      "default_mode": "uniform",
+      "axial_bins": 501,
+      "half_window_frames": 5
+    },
+    "focus": {
+      "metric": "transverse_rms_radius",
+      "smooth_curve": false
+    },
+    "envelope": {
+      "proxy_resample_points": 96,
+      "proxy_preview_scale": 1.0,
+      "angular_sectors": 128,
+      "quantile": 0.90
+    },
+    "surfaces": {
+      "lens_boundary_points": 128,
+      "lens_radial_layers": 16,
+      "lens_center_thickness_m": 0.0035,
+      "lens_edge_thickness_m": 0.0006
+    }
+  },
+  "preview": {
+    "trajectories": 10000,
+    "samples_per_trajectory": 200,
+    "slice_points": 10000
+  },
+  "export": {
+    "mp4": {
+      "frame_count": 120,
+      "framerate": 30
+    },
+    "png": {
+      "plot_width": 1900,
+      "plot_height": 1300
+    }
+  },
+  "ui": {
+    "log_max_lines": 10000,
+    "progress_update_interval_ms": 100
+  },
+  "pipeline": {
+    "use_native": false
+  }
+}

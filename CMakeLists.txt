@@ -6,6 +6,11 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/google/googletest.git
     GIT_TAG v1.14.0
 )
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+)
 
 project(BeamLabStudio
     VERSION 0.1.0
@@ -39,6 +44,7 @@ add_library(beamlab_core STATIC
     src/app/ServiceRegistry.cpp
     src/app/CommandLineOptions.cpp
     src/core/foundation/NumericGuards.cpp
+    src/core/config/ConfigLoader.cpp
     src/io/detect/FileProbe.cpp
     src/io/detect/ImportRouter.cpp
     src/io/parsing/DelimiterDetector.cpp
@@ -78,6 +84,8 @@ add_library(beamlab_core STATIC
 )
 
 target_include_directories(beamlab_core PUBLIC ${PROJECT_SOURCE_DIR}/src)
+FetchContent_MakeAvailable(nlohmann_json)
+target_link_libraries(beamlab_core PUBLIC nlohmann_json::nlohmann_json)
 
 add_executable(beamlab
     src/app/main.cpp
