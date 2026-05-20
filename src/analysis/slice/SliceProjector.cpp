@@ -2,17 +2,6 @@
 
 namespace beamlab::analysis {
 namespace {
-
-beamlab::core::Vec3 subtract(const beamlab::core::Vec3& a, const beamlab::core::Vec3& b)
-{
-    return {a.x - b.x, a.y - b.y, a.z - b.z};
-}
-
-double dot(const beamlab::core::Vec3& a, const beamlab::core::Vec3& b)
-{
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
 } // namespace
 
 beamlab::core::Vec2 SliceProjector::projectToTransversePlane(const beamlab::core::Vec3& position,

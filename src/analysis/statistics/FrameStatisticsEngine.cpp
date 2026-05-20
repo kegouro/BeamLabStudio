@@ -34,17 +34,6 @@
 namespace beamlab::analysis {
 namespace {
 
-double dot(const beamlab::core::Vec3& a, const beamlab::core::Vec3& b)
-{
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-beamlab::core::Vec3 subtract(const beamlab::core::Vec3& a,
-                             const beamlab::core::Vec3& b)
-{
-    return {a.x - b.x, a.y - b.y, a.z - b.z};
-}
-
 struct ProjectedSample {
     double s{0.0};
     double u{0.0};
