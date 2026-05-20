@@ -191,6 +191,7 @@ if(BEAMLAB_ENABLE_QT_UI)
     target_compile_features(beamlab_biosim PRIVATE cxx_std_20)
 
     add_executable(beamlab_ui
+        src/io/exporters/ExportManager.cpp
         src/ui/qt/main.cpp
         src/ui/qt/InteractiveGraphicsView.cpp
         src/ui/qt/MainWindow.cpp

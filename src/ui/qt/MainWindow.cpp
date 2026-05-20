@@ -1,5 +1,6 @@
 #include "ui/qt/MainWindow.h"
 #include "analysis/envelope/FullEnvelopePreviewBuilder.h"
+#include "io/exporters/ExportManager.h"
 #include "ui/qt/InfoWidget.h"
 #include "ui/qt/InteractiveGraphicsView.h"
 #include "ui/qt/ObjViewerWidget.h"
@@ -274,168 +275,6 @@ QStringList defaultAnalysisArguments(const QFileInfo& input_info)
     args << "--preview-slice-points" << "10000";
 
     return args;
-}
-
-bool copyFileOverwrite(const QString& source,
-                       const QString& destination,
-                       QStringList* messages)
-{
-    if (source.isEmpty()) {
-        return false;
-    }
-
-    const QFileInfo source_info(source);
-
-    if (!source_info.exists() || !source_info.isFile()) {
-        if (messages != nullptr) {
-            messages->push_back("Missing: " + source);
-        }
-        return false;
-    }
-
-    QFileInfo destination_info(destination);
-
-    if (!QDir().mkpath(destination_info.absolutePath())) {
-        if (messages != nullptr) {
-            messages->push_back("Could not create: " + destination_info.absolutePath());
-        }
-        return false;
-    }
-
-    if (QFileInfo::exists(destination)) {
-        QFile::remove(destination);
-    }
-
-    if (!QFile::copy(source, destination)) {
-        if (messages != nullptr) {
-            messages->push_back("Could not copy: " + source);
-        }
-        return false;
-    }
-
-    return true;
-}
-
-bool copyDirectoryRecursive(const QString& source_dir,
-                            const QString& destination_dir,
-                            QStringList* messages)
-{
-    QDir source(source_dir);
-
-    if (!source.exists()) {
-        return false;
-    }
-
-    if (!QDir().mkpath(destination_dir)) {
-        if (messages != nullptr) {
-            messages->push_back("Could not create: " + destination_dir);
-        }
-        return false;
-    }
-
-    bool ok = true;
-    QDirIterator it(
-        source.absolutePath(),
-        QDir::Files,
-        QDirIterator::Subdirectories
-    );
-
-    while (it.hasNext()) {
-        const QString source_path = it.next();
-        const QString relative_path = source.relativeFilePath(source_path);
-        const QString destination_path = QDir(destination_dir).filePath(relative_path);
-        ok = copyFileOverwrite(source_path, destination_path, messages) && ok;
-    }
-
-    return ok;
-}
-
-bool copyFilesBySuffix(const QString& source_dir,
-                       const QString& destination_dir,
-                       const QStringList& suffixes,
-                       QStringList* messages)
-{
-    QDir source(source_dir);
-
-    if (!source.exists()) {
-        return false;
-    }
-
-    if (!QDir().mkpath(destination_dir)) {
-        if (messages != nullptr) {
-            messages->push_back("Could not create: " + destination_dir);
-        }
-        return false;
-    }
-
-    bool copied_any = false;
-    bool ok = true;
-    QDirIterator it(
-        source.absolutePath(),
-        QDir::Files,
-        QDirIterator::Subdirectories
-    );
-
-    while (it.hasNext()) {
-        const QString source_path = it.next();
-        const QString suffix = QFileInfo(source_path).suffix().toLower();
-
-        if (!suffixes.contains(suffix)) {
-            continue;
-        }
-
-        copied_any = true;
-        const QString relative_path = source.relativeFilePath(source_path);
-        const QString destination_path = QDir(destination_dir).filePath(relative_path);
-        ok = copyFileOverwrite(source_path, destination_path, messages) && ok;
-    }
-
-    return copied_any && ok;
-}
-
-bool exportScenePng(QGraphicsScene* scene,
-                    const QString& path,
-                    const QSize& image_size,
-                    QStringList* messages)
-{
-    if (scene == nullptr || scene->sceneRect().isEmpty()) {
-        if (messages != nullptr) {
-            messages->push_back("No scene to export: " + path);
-        }
-        return false;
-    }
-
-    QImage image(image_size, QImage::Format_ARGB32_Premultiplied);
-    image.fill(QColor(13, 16, 22));
-
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setRenderHint(QPainter::TextAntialiasing, true);
-    scene->render(
-        &painter,
-        QRectF(QPointF(0.0, 0.0), QSizeF(image_size)),
-        scene->sceneRect(),
-        Qt::KeepAspectRatio
-    );
-    painter.end();
-
-    QFileInfo info(path);
-
-    if (!QDir().mkpath(info.absolutePath())) {
-        if (messages != nullptr) {
-            messages->push_back("Could not create: " + info.absolutePath());
-        }
-        return false;
-    }
-
-    if (!image.save(path, "PNG")) {
-        if (messages != nullptr) {
-            messages->push_back("Could not write PNG: " + path);
-        }
-        return false;
-    }
-
-    return true;
 }
 
 void fitSceneInView(QGraphicsView* view, QGraphicsScene* scene)
@@ -2796,336 +2635,7 @@ QString MainWindow::defaultExportBaseName() const
         QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
 }
 
-bool MainWindow::exportRunAssets(const QString& directory,
-                                 QStringList* messages) const
-{
-    if (!QDir().mkpath(directory)) {
-        if (messages != nullptr) {
-            messages->push_back("Could not create export directory: " + directory);
-        }
-        return false;
-    }
 
-    bool ok = true;
-    const QDir run(current_run_dir_);
-    const QDir out(directory);
-
-    ok = copyFileOverwrite(
-        current_manifest_path_,
-        out.filePath("manifest/visualization_manifest.json"),
-        messages
-    ) && ok;
-
-    ok = copyDirectoryRecursive(
-        run.filePath("tables"),
-        out.filePath("csv/tables"),
-        messages
-    ) && ok;
-
-    ok = copyFilesBySuffix(
-        run.filePath("visualization"),
-        out.filePath("csv/visualization"),
-        {"csv"},
-        messages
-    ) && ok;
-
-    if (statistics_dashboard_ != nullptr) {
-        QString stats_error;
-
-        if (!statistics_dashboard_->exportBeamRadiusSpreadsheet(
-                out.filePath("csv/statistics/beam_radius_profile.csv"),
-                &stats_error
-            )) {
-            ok = false;
-
-            if (messages != nullptr) {
-                messages->push_back(stats_error);
-            }
-        }
-    }
-
-    ok = copyFilesBySuffix(
-        run.filePath("geometry"),
-        out.filePath("models_3d"),
-        {"obj"},
-        messages
-    ) && ok;
-
-    if (!current_beamline_obj_.isEmpty() && QFileInfo::exists(current_beamline_obj_)) {
-        ok = copyFileOverwrite(
-            current_beamline_obj_,
-            out.filePath("models_3d/physical_beamline_geometry.obj"),
-            messages
-        ) && ok;
-    }
-
-    copyDirectoryRecursive(
-        run.filePath("reports"),
-        out.filePath("reports"),
-        messages
-    );
-
-    copyDirectoryRecursive(
-        run.filePath("equations"),
-        out.filePath("equations"),
-        messages
-    );
-
-    if (messages != nullptr) {
-        messages->push_back("CSV and 3D model assets exported to: " + directory);
-    }
-
-    return ok;
-}
-
-bool MainWindow::exportPlotPngsTo(const QString& directory,
-                                  QStringList* messages) const
-{
-    if (!QDir().mkpath(directory)) {
-        if (messages != nullptr) {
-            messages->push_back("Could not create plot directory: " + directory);
-        }
-        return false;
-    }
-
-    bool ok = true;
-    const QSize plot_size(1900, 1300);
-    const QDir out(directory);
-
-    ok = exportScenePng(
-        trajectory_scene_,
-        out.filePath("beam_trajectories_z_vs_x.png"),
-        plot_size,
-        messages
-    ) && ok;
-
-    ok = exportScenePng(
-        focal_slice_scene_,
-        out.filePath("focal_slice_u_vs_v.png"),
-        plot_size,
-        messages
-    ) && ok;
-
-    ok = exportScenePng(
-        envelope_scene_,
-        out.filePath("focal_envelope_proxy_u_vs_v.png"),
-        plot_size,
-        messages
-    ) && ok;
-
-    QString stats_error;
-
-    if (statistics_dashboard_ != nullptr &&
-        !statistics_dashboard_->exportChartsPng(
-            out.filePath("statistics"),
-            &stats_error
-        )) {
-        ok = false;
-
-        if (messages != nullptr) {
-            messages->push_back(stats_error);
-        }
-    }
-
-    if (messages != nullptr) {
-        messages->push_back("PNG plots exported to: " + directory);
-    }
-
-    return ok;
-}
-
-bool MainWindow::exportStatisticsPdfTo(const QString& path,
-                                       QStringList* messages) const
-{
-    QString error;
-    const bool ok =
-        statistics_dashboard_ != nullptr &&
-        statistics_dashboard_->exportStatisticsPdf(path, &error);
-
-    if (messages != nullptr) {
-        messages->push_back(ok ? "Statistics PDF exported to: " + path : error);
-    }
-
-    return ok;
-}
-
-bool MainWindow::exportTrajectoryVideoTo(const QString& path,
-                                         QStringList* messages)
-{
-    if (combined_scene_viewer_ == nullptr) {
-        if (messages != nullptr) {
-            messages->push_back("Combined 3D viewer is not available.");
-        }
-        return false;
-    }
-
-    const QString ffmpeg = QStandardPaths::findExecutable("ffmpeg");
-
-    if (ffmpeg.isEmpty()) {
-        if (messages != nullptr) {
-            messages->push_back("ffmpeg was not found. Install ffmpeg to export MP4 video.");
-        }
-        return false;
-    }
-
-    QFileInfo output_info(path);
-
-    if (!QDir().mkpath(output_info.absolutePath())) {
-        if (messages != nullptr) {
-            messages->push_back("Could not create video directory: " + output_info.absolutePath());
-        }
-        return false;
-    }
-
-    QDir temp_root(output_info.absoluteDir());
-    const QString frame_dir_path =
-        temp_root.filePath(".beamlab_frames_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz"));
-
-    if (!QDir().mkpath(frame_dir_path)) {
-        if (messages != nullptr) {
-            messages->push_back("Could not create video frame directory: " + frame_dir_path);
-        }
-        return false;
-    }
-
-    QDir frame_dir(frame_dir_path);
-
-    if (tabs_ != nullptr) tabs_->setEnabled(false);
-    if (combined_controls_dock_ != nullptr) combined_controls_dock_->setEnabled(false);
-    auto restore_ui = qScopeGuard([this] {
-        if (tabs_ != nullptr) tabs_->setEnabled(true);
-        if (combined_controls_dock_ != nullptr) combined_controls_dock_->setEnabled(true);
-    });
-
-    const int old_tab = tabs_ != nullptr ? tabs_->currentIndex() : -1;
-    const int old_mode = beam_display_mode_ != nullptr ? beam_display_mode_->currentIndex() : 0;
-    const int old_lambda = trajectory_parameter_slider_ != nullptr ? trajectory_parameter_slider_->value() : 100;
-
-    if (tabs_ != nullptr && combined_page_ != nullptr) {
-        tabs_->setCurrentWidget(combined_page_);
-    }
-
-    if (beam_display_mode_ != nullptr) {
-        beam_display_mode_->setCurrentIndex(0);
-    }
-
-    updateCombinedDisplayMode();
-    combined_scene_viewer_->setTrajectoryParameter(0.0);
-    combined_scene_viewer_->frameLongestAxisHorizontally();
-    QApplication::processEvents();
-
-    constexpr int frame_count = 120;
-    bool frames_ok = true;
-
-    for (int frame = 0; frame < frame_count; ++frame) {
-        const double lambda =
-            frame_count <= 1
-                ? 1.0
-                : static_cast<double>(frame) / static_cast<double>(frame_count - 1);
-
-        combined_scene_viewer_->setTrajectoryParameter(lambda);
-
-        if (trajectory_parameter_slider_ != nullptr) {
-            const QSignalBlocker blocker(trajectory_parameter_slider_);
-            trajectory_parameter_slider_->setValue(static_cast<int>(std::round(lambda * 100.0)));
-        }
-
-        if (trajectory_parameter_value_label_ != nullptr) {
-            trajectory_parameter_value_label_->setText(QString::number(lambda, 'f', 2));
-        }
-
-        combined_scene_viewer_->update();
-        {
-            QEventLoop loop;
-            loop.processEvents(QEventLoop::ExcludeUserInputEvents);
-        }
-
-        const QPixmap frame_pixmap = combined_scene_viewer_->grab();
-        const QString frame_path =
-            frame_dir.filePath(QString("frame_%1.png").arg(frame, 4, 10, QChar('0')));
-
-        if (frame_pixmap.isNull() || !frame_pixmap.save(frame_path, "PNG")) {
-            frames_ok = false;
-            break;
-        }
-    }
-
-    if (beam_display_mode_ != nullptr) {
-        beam_display_mode_->setCurrentIndex(old_mode);
-    }
-
-    if (trajectory_parameter_slider_ != nullptr) {
-        trajectory_parameter_slider_->setValue(old_lambda);
-    }
-
-    if (trajectory_parameter_value_label_ != nullptr) {
-        trajectory_parameter_value_label_->setText(
-            QString::number(static_cast<double>(old_lambda) / 100.0, 'f', 2)
-        );
-    }
-
-    combined_scene_viewer_->setTrajectoryParameter(static_cast<double>(old_lambda) / 100.0);
-
-    updateCombinedDisplayMode();
-
-    if (tabs_ != nullptr && old_tab >= 0) {
-        tabs_->setCurrentIndex(old_tab);
-    }
-
-    QApplication::processEvents();
-
-    if (!frames_ok) {
-        if (messages != nullptr) {
-            messages->push_back("Could not render all trajectory video frames.");
-        }
-        frame_dir.removeRecursively();
-        return false;
-    }
-
-    if (QFileInfo::exists(path)) {
-        QFile::remove(path);
-    }
-
-    QStringList args;
-    args << "-y";
-    args << "-framerate" << "30";
-    args << "-i" << frame_dir.filePath("frame_%04d.png");
-    args << "-pix_fmt" << "yuv420p";
-    args << "-vf" << "scale=trunc(iw/2)*2:trunc(ih/2)*2";
-    args << path;
-
-    QProcess process;
-    process.setProgram(ffmpeg);
-    process.setArguments(args);
-    process.setProcessChannelMode(QProcess::MergedChannels);
-    process.start();
-
-    if (!process.waitForStarted(5000)) {
-        if (messages != nullptr) {
-            messages->push_back("Could not start ffmpeg.");
-        }
-        return false;
-    }
-
-    process.waitForFinished(-1);
-    const QString log = QString::fromUtf8(process.readAllStandardOutput());
-
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
-        if (messages != nullptr) {
-            messages->push_back("ffmpeg failed:\n" + log.right(2500));
-            messages->push_back("Frames were left at: " + frame_dir_path);
-        }
-        return false;
-    }
-
-    frame_dir.removeRecursively();
-
-    if (messages != nullptr) {
-        messages->push_back("Trajectory MP4 exported to: " + path);
-    }
-
-    return true;
-}
 
 void MainWindow::exportAllArtifacts()
 {
@@ -3147,6 +2657,10 @@ void MainWindow::exportAllArtifacts()
     }
 
     const QString export_dir = QDir(base_dir).filePath(defaultExportBaseName());
+    beamlab::io::ExportManager em(
+        current_run_dir_, current_manifest_path_, current_beamline_obj_,
+        statistics_dashboard_);
+
     QStringList messages;
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -3154,10 +2668,47 @@ void MainWindow::exportAllArtifacts()
     QApplication::processEvents();
 
     bool ok = true;
-    ok = exportRunAssets(export_dir, &messages) && ok;
-    ok = exportPlotPngsTo(QDir(export_dir).filePath("plots_png"), &messages) && ok;
-    ok = exportStatisticsPdfTo(QDir(export_dir).filePath("statistics_summary.pdf"), &messages) && ok;
-    ok = exportTrajectoryVideoTo(QDir(export_dir).filePath("trajectory_lambda_sweep.mp4"), &messages) && ok;
+    ok = em.exportAssets(export_dir, &messages) && ok;
+    ok = em.exportPlots(trajectory_scene_, focal_slice_scene_,
+                         envelope_scene_,
+                         QDir(export_dir).filePath("plots_png"), &messages) && ok;
+    ok = em.exportPdf(QDir(export_dir).filePath("statistics_summary.pdf"), &messages) && ok;
+
+    // MP4 export needs combined scene setup
+    if (combined_scene_viewer_ != nullptr) {
+        const int old_tab = tabs_ != nullptr ? tabs_->currentIndex() : -1;
+        const int old_mode = beam_display_mode_ != nullptr ? beam_display_mode_->currentIndex() : 0;
+        const int old_lambda = trajectory_parameter_slider_ != nullptr
+            ? trajectory_parameter_slider_->value() : 100;
+
+        if (tabs_ != nullptr && combined_page_ != nullptr)
+            tabs_->setCurrentWidget(combined_page_);
+        if (beam_display_mode_ != nullptr)
+            beam_display_mode_->setCurrentIndex(0);
+
+        updateCombinedDisplayMode();
+        combined_scene_viewer_->setTrajectoryParameter(0.0);
+        combined_scene_viewer_->frameLongestAxisHorizontally();
+        QApplication::processEvents();
+
+        ok = em.exportMp4(combined_scene_viewer_,
+                           QDir(export_dir).filePath("trajectory_lambda_sweep.mp4"),
+                           &messages) && ok;
+
+        if (beam_display_mode_ != nullptr)
+            beam_display_mode_->setCurrentIndex(old_mode);
+        if (trajectory_parameter_slider_ != nullptr)
+            trajectory_parameter_slider_->setValue(old_lambda);
+        if (trajectory_parameter_value_label_ != nullptr)
+            trajectory_parameter_value_label_->setText(
+                QString::number(static_cast<double>(old_lambda) / 100.0, 'f', 2));
+        combined_scene_viewer_->setTrajectoryParameter(
+            static_cast<double>(old_lambda) / 100.0);
+        updateCombinedDisplayMode();
+        if (tabs_ != nullptr && old_tab >= 0)
+            tabs_->setCurrentIndex(old_tab);
+        QApplication::processEvents();
+    }
 
     QApplication::restoreOverrideCursor();
     status_label_->setText(ok ? "Export complete: " + export_dir : "Export finished with warnings");
@@ -3188,8 +2739,11 @@ void MainWindow::exportCsvAndModels()
         return;
     }
 
+    beamlab::io::ExportManager em(
+        current_run_dir_, current_manifest_path_, current_beamline_obj_,
+        statistics_dashboard_);
     QStringList messages;
-    const bool ok = exportRunAssets(directory, &messages);
+    const bool ok = em.exportAssets(directory, &messages);
     status_label_->setText(ok ? "CSV and 3D export complete" : "CSV and 3D export had warnings");
 
     QMessageBox::information(
@@ -3218,8 +2772,12 @@ void MainWindow::exportPlotsPng()
         return;
     }
 
+    beamlab::io::ExportManager em(
+        current_run_dir_, current_manifest_path_, current_beamline_obj_,
+        statistics_dashboard_);
     QStringList messages;
-    const bool ok = exportPlotPngsTo(directory, &messages);
+    const bool ok = em.exportPlots(trajectory_scene_, focal_slice_scene_,
+                                    envelope_scene_, directory, &messages);
     status_label_->setText(ok ? "PNG plot export complete" : "PNG plot export had warnings");
 
     QMessageBox::information(
@@ -3251,11 +2809,58 @@ void MainWindow::exportTrajectoryVideoMp4()
 
     path = withSuffix(path, "mp4");
 
+    beamlab::io::ExportManager em(
+        current_run_dir_, current_manifest_path_, current_beamline_obj_,
+        statistics_dashboard_);
+
+    if (combined_scene_viewer_ == nullptr) {
+        QMessageBox::warning(this, "Export failed", "Combined 3D viewer is not available.");
+        return;
+    }
+
     QStringList messages;
     QApplication::setOverrideCursor(Qt::WaitCursor);
     status_label_->setText("Exporting MP4 video...");
     QApplication::processEvents();
-    const bool ok = exportTrajectoryVideoTo(path, &messages);
+
+    const int old_tab = tabs_ != nullptr ? tabs_->currentIndex() : -1;
+    const int old_mode = beam_display_mode_ != nullptr ? beam_display_mode_->currentIndex() : 0;
+    const int old_lambda = trajectory_parameter_slider_ != nullptr
+        ? trajectory_parameter_slider_->value() : 100;
+
+    if (tabs_ != nullptr && combined_page_ != nullptr)
+        tabs_->setCurrentWidget(combined_page_);
+    if (beam_display_mode_ != nullptr)
+        beam_display_mode_->setCurrentIndex(0);
+
+    updateCombinedDisplayMode();
+    combined_scene_viewer_->setTrajectoryParameter(0.0);
+    combined_scene_viewer_->frameLongestAxisHorizontally();
+
+    if (tabs_ != nullptr) tabs_->setEnabled(false);
+    if (combined_controls_dock_ != nullptr) combined_controls_dock_->setEnabled(false);
+    auto restore_ui = qScopeGuard([this] {
+        if (tabs_ != nullptr) tabs_->setEnabled(true);
+        if (combined_controls_dock_ != nullptr) combined_controls_dock_->setEnabled(true);
+    });
+
+    QApplication::processEvents();
+    const bool ok = em.exportMp4(combined_scene_viewer_, path, &messages);
+
+    if (beam_display_mode_ != nullptr)
+        beam_display_mode_->setCurrentIndex(old_mode);
+    if (trajectory_parameter_slider_ != nullptr)
+        trajectory_parameter_slider_->setValue(old_lambda);
+    if (trajectory_parameter_value_label_ != nullptr)
+        trajectory_parameter_value_label_->setText(
+            QString::number(static_cast<double>(old_lambda) / 100.0, 'f', 2));
+    combined_scene_viewer_->setTrajectoryParameter(
+        static_cast<double>(old_lambda) / 100.0);
+    updateCombinedDisplayMode();
+    if (tabs_ != nullptr && old_tab >= 0)
+        tabs_->setCurrentIndex(old_tab);
+    QApplication::processEvents();
+
     QApplication::restoreOverrideCursor();
     status_label_->setText(ok ? "MP4 export complete" : "MP4 export failed");
 
@@ -3288,8 +2893,11 @@ void MainWindow::exportStatisticsPdf()
 
     path = withSuffix(path, "pdf");
 
+    beamlab::io::ExportManager em(
+        current_run_dir_, current_manifest_path_, current_beamline_obj_,
+        statistics_dashboard_);
     QStringList messages;
-    const bool ok = exportStatisticsPdfTo(path, &messages);
+    const bool ok = em.exportPdf(path, &messages);
     status_label_->setText(ok ? "PDF export complete" : "PDF export failed");
 
     QMessageBox::information(

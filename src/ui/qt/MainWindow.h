@@ -89,10 +89,6 @@ private:
                               const QString& lens_obj) const;
     bool ensureRunLoaded() const;
     QString defaultExportBaseName() const;
-    bool exportRunAssets(const QString& directory, QStringList* messages) const;
-    bool exportPlotPngsTo(const QString& directory, QStringList* messages) const;
-    bool exportStatisticsPdfTo(const QString& path, QStringList* messages) const;
-    bool exportTrajectoryVideoTo(const QString& path, QStringList* messages);
 
     void adjustCombinedLayerIndicesAfterRemoval(int removed_layer);
     void saveSettings();
