@@ -4,6 +4,7 @@
 #include "data/model/TrajectorySample.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <stdexcept>
 
 namespace beamlab::core {
@@ -90,7 +91,9 @@ std::unique_ptr<ISampleStorage> ISampleStorage::create(uint64_t estimatedFileSiz
     if (estimatedFileSize < kThreshold) {
         return std::make_unique<InMemoryStorage>();
     }
-    return std::make_unique<SqliteStorage>(":memory:");
+    // Use a temp file on disk — NOT :memory: — to bound RAM usage
+    auto tmpPath = std::filesystem::temp_directory_path() / "beamlab_samples.db";
+    return std::make_unique<SqliteStorage>(tmpPath.string());
 }
 
 } // namespace beamlab::core

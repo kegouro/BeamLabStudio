@@ -16,10 +16,10 @@ SqliteStorage::SqliteStorage(const std::string& dbPath)
     if (sqlite3_open(dbPath_.c_str(), &db_) != SQLITE_OK) {
         throw std::runtime_error("Failed to open SQLite database: " + dbPath_);
     }
-    exec("PRAGMA journal_mode=WAL");
+    exec("PRAGMA journal_mode=OFF");        // No journal during bulk import (fast, temp file)
     exec("PRAGMA synchronous=OFF");         // Fast bulk import — restored in finalizeIndices()
-    exec("PRAGMA cache_size=-16000");       // 16 MB page cache (was 64MB, reduced for <2GB RAM target)
-    exec("PRAGMA locking_mode=EXCLUSIVE");  // Single writer, no lock overhead
+    exec("PRAGMA cache_size=-8000");        // 8 MB page cache (minimal, for < 2 GB RAM)
+    exec("PRAGMA locking_mode=EXCLUSIVE");   // Single writer, no lock overhead
     ensureTable();
 }
 
@@ -50,6 +50,7 @@ void SqliteStorage::ensureTable()
 
 void SqliteStorage::finalizeIndices()
 {
+    exec("PRAGMA journal_mode=WAL");         // Switch to WAL for concurrent reads
     exec("PRAGMA synchronous=NORMAL");
     exec("PRAGMA locking_mode=NORMAL");
     exec("CREATE INDEX IF NOT EXISTS idx_traj ON samples(trajectory_id, step_index)");
