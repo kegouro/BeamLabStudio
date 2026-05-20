@@ -2390,74 +2390,77 @@ void MainWindow::loadManifest(const QString& path)
         return;
     }
 
+    QJsonParseError parse_error;
+    QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8(), &parse_error);
+    if (parse_error.error != QJsonParseError::NoError || !doc.isObject()) {
+        QMessageBox::warning(this, "Invalid manifest",
+            QString("The manifest file is not valid JSON: %1").arg(parse_error.errorString()));
+        return;
+    }
+    QJsonObject obj = doc.object();
+
     current_manifest_path_ = path;
     QFileInfo manifest_info(path);
     QDir run_dir = manifest_info.dir();
     run_dir.cdUp();
     current_run_dir_ = run_dir.absolutePath();
 
+    auto manifestVal = [&](const QString& key) { return obj.value(key).toString(); };
 
-    const auto trajectories_csv = resolvePath(
-        extractJsonString(text, "trajectories_preview_csv"),
-        path
-    );
+    const QString trajectories_csv_key = manifestVal("trajectories_preview_csv");
+    if (trajectories_csv_key.isEmpty()) {
+        QMessageBox::warning(this, "Invalid manifest",
+            "Required field 'trajectories_preview_csv' is missing or empty.");
+        return;
+    }
+    const auto trajectories_csv = resolvePath(trajectories_csv_key, path);
 
-    const auto focal_slice_csv = resolvePath(
-        extractJsonString(text, "focal_slice_points_csv"),
-        path
-    );
+    const QString focal_slice_csv_key = manifestVal("focal_slice_points_csv");
+    if (focal_slice_csv_key.isEmpty()) {
+        QMessageBox::warning(this, "Invalid manifest",
+            "Required field 'focal_slice_points_csv' is missing or empty.");
+        return;
+    }
+    const auto focal_slice_csv = resolvePath(focal_slice_csv_key, path);
 
-    const auto envelope_csv = resolvePath(
-        extractJsonString(text, "envelope_rings_csv"),
-        path
-    );
+    const QString envelope_csv_key = manifestVal("envelope_rings_csv");
+    if (envelope_csv_key.isEmpty()) {
+        QMessageBox::warning(this, "Invalid manifest",
+            "Required field 'envelope_rings_csv' is missing or empty.");
+        return;
+    }
+    const auto envelope_csv = resolvePath(envelope_csv_key, path);
 
-    const auto trajectories_obj = resolvePath(
-        extractJsonString(text, "trajectories_preview_obj"),
-        path
-    );
+    const auto trajectories_obj = resolvePath(manifestVal("trajectories_preview_obj"), path);
 
-    // For the combined 3D scene use the real (world-coordinate) OBJ so all
-    // layers are in the same coordinate frame.  Fall back to preview if needed.
-    QString caustic_scene_raw = extractJsonString(text, "beam_caustic_obj");
+    QString caustic_scene_raw = manifestVal("beam_caustic_obj");
     if (caustic_scene_raw.isEmpty()) {
-        caustic_scene_raw = extractJsonString(text, "beam_caustic_preview_obj");
+        caustic_scene_raw = manifestVal("beam_caustic_preview_obj");
     }
     const auto caustic_obj = resolvePath(caustic_scene_raw, path);
 
-    // Preview OBJ for the standalone Focal envelope proxy viewer tab.
-    const auto caustic_preview_obj = resolvePath(
-        extractJsonString(text, "beam_caustic_preview_obj"),
-        path
-    );
+    const auto caustic_preview_obj = resolvePath(manifestVal("beam_caustic_preview_obj"), path);
 
-    QString lens_obj_raw = extractJsonString(text, "effective_lens_disk_obj");
+    QString lens_obj_raw = manifestVal("effective_lens_disk_obj");
     if (lens_obj_raw.isEmpty()) {
-        lens_obj_raw = extractJsonString(text, "effective_lens_body_preview_obj");
+        lens_obj_raw = manifestVal("effective_lens_body_preview_obj");
     }
     if (lens_obj_raw.isEmpty()) {
-        lens_obj_raw = extractJsonString(text, "effective_lens_disk_preview_obj");
+        lens_obj_raw = manifestVal("effective_lens_disk_preview_obj");
     }
     const auto lens_obj = resolvePath(lens_obj_raw, path);
 
-    // Preview OBJ for the standalone Effective lens viewer tab.
-    QString lens_preview_raw = extractJsonString(text, "effective_lens_disk_preview_obj");
+    QString lens_preview_raw = manifestVal("effective_lens_disk_preview_obj");
     if (lens_preview_raw.isEmpty()) {
         lens_preview_raw = lens_obj_raw;
     }
     const auto lens_preview_obj = resolvePath(lens_preview_raw, path);
 
-    QString full_envelope_obj_raw =
-        extractJsonString(text, "full_beam_envelope_preview_obj");
-
+    QString full_envelope_obj_raw = manifestVal("full_beam_envelope_preview_obj");
     if (full_envelope_obj_raw.isEmpty()) {
-        full_envelope_obj_raw = extractJsonString(text, "full_beam_envelope_obj");
+        full_envelope_obj_raw = manifestVal("full_beam_envelope_obj");
     }
-
-    const auto full_envelope_obj = resolvePath(
-        full_envelope_obj_raw,
-        path
-    );
+    const auto full_envelope_obj = resolvePath(full_envelope_obj_raw, path);
 
     current_trajectories_csv_ = trajectories_csv;
     current_focal_slice_csv_ = focal_slice_csv;
