@@ -3146,7 +3146,10 @@ void beamlab::ui::MainWindow::openDataFileAndRunWithPath(const QString& input_pa
         return;
     }
 
+    const QString engine_path = root_dir.filePath("build/beamlab");
+
     QStringList args;
+    args << engine_path;
     args << input_path;
     args << output_dir;
     args += defaultAnalysisArguments(input_info);

@@ -1,47 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-if [ "$#" -lt 2 ]; then
+if [ "$#" -lt 3 ]; then
   echo "Uso:"
-  echo "  scripts/run_beamlab_full.sh <input_file> <output_dir> [opciones extra para beamlab]"
+  echo "  scripts/run_beamlab_full.sh <engine_path> <input_file> <output_dir> [opciones extra]"
   echo ""
   echo "Ejemplo:"
   echo "  scripts/run_beamlab_full.sh \\"
+  echo "    ./build/beamlab \\"
   echo "    stepping_data.csv \\"
   echo "    outputs/mi_corrida \\"
   echo "    --axis z --reference-mode axial-bins --binning equal-count --axial-bins 501 --window 5"
   exit 1
 fi
 
-INPUT="$1"
-OUTPUT="$2"
-shift 2
+ENGINE="$1"
+INPUT="$2"
+OUTPUT="$3"
+shift 3
 
-if [ ! -f "$INPUT" ]; then
-  echo "No existe el archivo de entrada:"
-  echo "  $INPUT"
+if [ -z "${ENGINE}" ] || [ ! -f "${ENGINE}" ]; then
+  echo "Error: engine not found or empty: '${ENGINE}'"
   exit 1
 fi
 
-if [[ "$INPUT" == *.root ]]; then
-  ENGINE="${SCRIPT_DIR}/build-root/beamlab"
-else
-  ENGINE="${SCRIPT_DIR}/build/beamlab"
-fi
-
-if [ ! -x "$ENGINE" ]; then
-  echo "No existe el ejecutable:"
-  echo "  $ENGINE"
-  echo ""
-  echo "Compila primero:"
-  echo "  cmake -S . -B build -G Ninja"
-  echo "  cmake --build build"
-  echo ""
-  echo "o para ROOT:"
-  echo "  cmake -S . -B build-root -G Ninja -DBEAMLAB_ENABLE_ROOT=ON"
-  echo "  cmake --build build-root"
+if [ ! -f "${INPUT}" ]; then
+  echo "Error: input file not found: ${INPUT}"
   exit 1
 fi
 
