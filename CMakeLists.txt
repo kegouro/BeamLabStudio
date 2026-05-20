@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.14.0
+)
+
 project(BeamLabStudio
     VERSION 0.1.0
     DESCRIPTION "Modular scientific platform for beam, trajectory and geometry analysis"
@@ -15,6 +22,8 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+enable_testing()
 
 add_compile_options(
     -Wall
@@ -212,3 +221,5 @@ if(BEAMLAB_ENABLE_QT_UI)
 
     target_compile_features(beamlab_ui PRIVATE cxx_std_20)
 endif()
+
+add_subdirectory(tests/unit)
