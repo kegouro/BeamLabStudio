@@ -482,3 +482,53 @@ QFrame[frameShape="VLine"] {
     max-width: 1px;
 }
 
+/* ── Labels ── */
+QLabel {
+    color: #A5B4CC;
+    font-size: 12px;
+    background: transparent;
+}
+QLabel#sectionLabel {
+    color: #6B7A94;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 4px 0 2px 0;
+}
+QLabel#statusLabel {
+    color: #7CF2D2;
+    font-size: 12px;
+    padding-left: 10px;
+}
+
+/* ── Graphics views (2D plots) ── */
+QGraphicsView {
+    background-color: #0D1016;
+    border: 1px solid #1E2A3A;
+    border-radius: 6px;
+}
+
+/* ── SpinBox up/down buttons ── */
+QSpinBox::up-button, QSpinBox::down-button {
+    background-color: #1C2538;
+    border: none;
+    width: 18px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background-color: #253040;
+}
+
+/* ── Plain text monospace ── */
+QPlainTextEdit {
+    font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+    font-size: 12px;
+    padding: 12px;
+}
+
+/* ── Table items ── */
+QTableWidget::item {
+    padding: 4px 8px;
+    border: none;
+}
+
