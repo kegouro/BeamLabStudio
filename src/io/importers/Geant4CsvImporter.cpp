@@ -587,23 +587,33 @@ uint64_t Geant4CsvImporter::importStreaming(
         ++line_number;
         if (line.empty() || line[0] == '#') continue;
 
-        const auto tokens = splitLine(line, delimiter);  // cached delimiter
-        if (tokens.size() < 15) continue;
+        // Fast inline token extraction — zero string allocation per row
+        const char* buf = line.c_str();
+        const char* t[15]{};
+        int ti = 0;
+        t[0] = buf;
+        for (const char* p = buf; *p && ti < 15; ++p) {
+            if (*p == delimiter) {
+                const_cast<char*>(p)[0] = '\0';
+                t[++ti] = p + 1;
+            }
+        }
+        if (ti < 14) continue;
 
         double x_cm_v=0, y_cm_v=0, z_cm_v=0, edep_v=0, kine_v=0, time_ns_v=0;
-        int64_t track_id_v, event_id_v, pdg_v;
+        int64_t track_id_v=0, event_id_v=0, pdg_v=0;
 
-        if (!fastParseDouble(tokens[0].c_str(), x_cm_v) ||
-            !fastParseDouble(tokens[1].c_str(), y_cm_v) ||
-            !fastParseDouble(tokens[2].c_str(), z_cm_v) ||
-            !fastParseDouble(tokens[8].c_str(), time_ns_v) ||
-            !fastParseInt64(tokens[9].c_str(), track_id_v) ||
-            !fastParseInt64(tokens[11].c_str(), event_id_v) ||
-            !fastParseInt64(tokens[12].c_str(), pdg_v))
+        if (!fastParseDouble(t[0], x_cm_v) ||
+            !fastParseDouble(t[1], y_cm_v) ||
+            !fastParseDouble(t[2], z_cm_v) ||
+            !fastParseDouble(t[8], time_ns_v) ||
+            !fastParseInt64(t[9], track_id_v) ||
+            !fastParseInt64(t[11], event_id_v) ||
+            !fastParseInt64(t[12], pdg_v))
             continue;
 
-        fastParseDouble(tokens[3].c_str(), edep_v);   // optional
-        fastParseDouble(tokens[4].c_str(), kine_v);   // optional
+        fastParseDouble(t[3], edep_v);
+        fastParseDouble(t[4], kine_v);
 
         std::string trajId = std::to_string(event_id_v) + "_" + std::to_string(track_id_v);
         if (trajId != currentTrajId) {
@@ -619,9 +629,9 @@ uint64_t Geant4CsvImporter::importStreaming(
         s.edep_eV = edep_v * 1.0e6;
         s.kinE_MeV = kine_v;
         { double mx=0, my=0, mz=0;
-          fastParseDouble(tokens[5].c_str(), mx);
-          fastParseDouble(tokens[6].c_str(), my);
-          fastParseDouble(tokens[7].c_str(), mz);
+          fastParseDouble(t[5], mx);
+          fastParseDouble(t[6], my);
+          fastParseDouble(t[7], mz);
           s.momentum_MeV = {mx, my, mz}; }
         storage.addSample(s);
         ++sampleCount;
