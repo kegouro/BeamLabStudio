@@ -1,8 +1,8 @@
 #pragma once
 
+#include "biosim/materials/BioMaterialLibrary.h"
+#include "biosim/physics/StoppingPowerEngine.h"
 #include "io/normalization/AxisFrameResolver.h"
-#include "simulation/physics/MuonTrackSimulator.h"
-#include "simulation/tissue/TissueRegistry.h"
 
 #include <QWidget>
 #include <QString>
@@ -126,9 +126,9 @@ private:
     QPushButton* export_button_{nullptr};
     QLabel* status_label_{nullptr};
 
-    // Physics backend (lives for the widget's lifetime; thread-safe to call from main thread)
-    beamlab::simulation::MuonTrackSimulator physics_engine_{};
-    beamlab::simulation::TissueRegistry tissue_registry_{};
+    // Physics backend (biosim StoppingPowerEngine with Sternheimer density correction)
+    beamlab::biosim::StoppingPowerEngine stopping_power_{};
+    beamlab::biosim::BioMaterialLibrary material_library_{};
     beamlab::io::AxisFrameResolver axis_resolver_{};
 };
 
