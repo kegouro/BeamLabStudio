@@ -96,6 +96,7 @@ void addSample(FrameAccumulator& acc,
 FrameStatistics finalizeAccumulator(const FrameAccumulator& acc)
 {
     FrameStatistics stats{};
+    if (acc.count == 0) return stats;
 
     const double inv_n = 1.0 / static_cast<double>(acc.count);
     const double mean_s = acc.sum_s * inv_n;
