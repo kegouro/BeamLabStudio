@@ -139,6 +139,9 @@ ExportResult QualityReportExporter::exportMarkdown(
     output << "## Verdict\n\n";
     output << "**" << report.verdict << "**\n\n";
 
+    output << "**Warning:** Straggling model: Gaussian approximation. "
+              "For clinical dosimetry, Vavilov/Landau straggling is recommended.\n\n";
+
     output << "| Severity | Count |\n";
     output << "|---|---:|\n";
     output << "| Info | " << report.info_count << " |\n";

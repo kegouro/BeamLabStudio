@@ -59,6 +59,7 @@ ExportResult EnergyProfileExporter::exportStepProfile(
     }
 
     out << "# BeamLabStudio energy step profile\n";
+    out << "# straggling_model: gaussian\n";
     out << "event_id,track_id,step_index,axial_m,"
            "edep_MeV,edep_eV,kinE_MeV,dose_Gy,x_m,y_m,z_m\n";
 
