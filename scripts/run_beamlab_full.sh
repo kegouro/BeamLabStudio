@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 if [ "$#" -lt 2 ]; then
   echo "Uso:"
   echo "  scripts/run_beamlab_full.sh <input_file> <output_dir> [opciones extra para beamlab]"
   echo ""
   echo "Ejemplo:"
   echo "  scripts/run_beamlab_full.sh \\"
-  echo "    '/home/kegouro/Proyectos/BeamLabStudio/examples/datasets/Geant4 CSV/stepping_data_t0.root' \\"
-  echo "    outputs/root_full_v1 \\"
+  echo "    stepping_data.csv \\"
+  echo "    outputs/mi_corrida \\"
   echo "    --axis z --reference-mode axial-bins --binning equal-count --axial-bins 501 --window 5"
   exit 1
 fi
@@ -24,9 +26,9 @@ if [ ! -f "$INPUT" ]; then
 fi
 
 if [[ "$INPUT" == *.root ]]; then
-  ENGINE="./build-root/beamlab"
+  ENGINE="${SCRIPT_DIR}/build-root/beamlab"
 else
-  ENGINE="./build/beamlab"
+  ENGINE="${SCRIPT_DIR}/build/beamlab"
 fi
 
 if [ ! -x "$ENGINE" ]; then
@@ -43,22 +45,14 @@ if [ ! -x "$ENGINE" ]; then
   exit 1
 fi
 
-if command -v ldd >/dev/null 2>&1; then
-  MISSING_LIBS="$(ldd "$ENGINE" 2>/dev/null | awk '/not found/ { print "  " $1 }')"
+echo "Analysis engine: ${ENGINE}"
+echo "Input file:      ${INPUT}"
+echo "Output dir:      ${OUTPUT}"
+echo ""
 
-  if [ -n "$MISSING_LIBS" ]; then
-    echo "El ejecutable existe, pero faltan bibliotecas compartidas para ejecutarlo:"
-    echo "$MISSING_LIBS"
-    echo ""
-    echo "Si este es un análisis ROOT, carga el entorno de ROOT antes de ejecutar la app"
-    echo "o ajusta LD_LIBRARY_PATH para que incluya las bibliotecas de ROOT."
-    exit 1
-  fi
-fi
-
-"$ENGINE" \
-  --input "$INPUT" \
-  --output "$OUTPUT" \
+"${ENGINE}" \
+  --input "${INPUT}" \
+  --output "${OUTPUT}" \
   "$@"
 
 if [ -f "$OUTPUT/geometry/effective_lens_disk.obj" ]; then
