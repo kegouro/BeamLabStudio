@@ -73,7 +73,17 @@ beamlab::data::FocusResult FocusDetector::detect(const beamlab::data::FocusCurve
             result.confidence = 0.1;
         }
     } else {
-        result.confidence = 0.1;
+        // Edge focus: confidence from unilateral slope
+        if (best_index == 0 && curve.points.size() >= 2) {
+            const double slope = curve.points[1].metric_value - curve.points[0].metric_value;
+            result.confidence = std::max(0.0, slope);
+        } else if (best_index + 1 == curve.points.size() && curve.points.size() >= 2) {
+            const double slope = curve.points[curve.points.size()-2].metric_value
+                               - curve.points[curve.points.size()-1].metric_value;
+            result.confidence = std::max(0.0, slope);
+        } else {
+            result.confidence = 0.0;
+        }
     }
 
     return result;
