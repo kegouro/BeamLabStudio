@@ -1,5 +1,6 @@
 #include "ui/qt/MainWindow.h"
 #include "analysis/envelope/FullEnvelopePreviewBuilder.h"
+#include "core/config/ConfigLoader.h"
 #include "io/exporters/ExportManager.h"
 #include "ui/qt/InfoWidget.h"
 #include "ui/qt/InteractiveGraphicsView.h"
@@ -1255,6 +1256,28 @@ void MainWindow::buildUi()
         analysis_log_->setVisible(show);
         log_toggle_button_->setText(show ? "▲" : "▼");
     });
+
+    // ── Native analysis pipeline (replaces bash/QProcess) ──────────────────
+    analysisPresenter_ = new AnalysisPresenter(this);
+    connect(analysisPresenter_, &AnalysisPresenter::logLineReady, this, [this](const QString& line) {
+        if (analysis_log_ == nullptr) return;
+        constexpr int MAX_LOG_LINES = 10000;
+        if (analysis_log_->document()->blockCount() > MAX_LOG_LINES) {
+            QTextCursor cursor(analysis_log_->document());
+            cursor.movePosition(QTextCursor::Start);
+            cursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor,
+                analysis_log_->document()->blockCount() - MAX_LOG_LINES);
+            cursor.removeSelectedText();
+        }
+        analysis_log_->appendPlainText(line);
+    });
+    connect(analysisPresenter_, &AnalysisPresenter::analysisFinished, this,
+        [this](bool success, const QString& message) {
+            status_label_->setText(message);
+            if (!success) {
+                QMessageBox::warning(this, "Analysis", message);
+            }
+        });
 
     analysis_activity_timer_ = new QTimer(this);
     connect(analysis_activity_timer_, &QTimer::timeout, this, [this]() {
@@ -3096,24 +3119,15 @@ void beamlab::ui::MainWindow::openDataFileAndRun()
 
 void beamlab::ui::MainWindow::openDataFileAndRunWithPath(const QString& input_path)
 {
-    if (running_process_ != nullptr) {
-        QMessageBox::information(
-            this,
-            "Analysis already running",
-            "Wait for the current analysis to finish before starting another one."
-        );
+    if (analysisPresenter_ == nullptr) {
+        QMessageBox::critical(this, "Error", "Analysis presenter not initialized.");
         return;
     }
 
-    const QDir root_dir = projectRootDir();
     const QFileInfo input_info(input_path);
-
     if (!input_info.exists()) {
-        QMessageBox::critical(
-            this,
-            "Input file not found",
-            "The selected input file does not exist."
-        );
+        QMessageBox::critical(this, "Input file not found",
+            "The selected input file does not exist.");
         return;
     }
 
@@ -3121,45 +3135,15 @@ void beamlab::ui::MainWindow::openDataFileAndRunWithPath(const QString& input_pa
 
     const QString timestamp =
         QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
-
-    const QString safe_base =
-        sanitizeRunBase(input_info.completeBaseName());
-
+    const QString safe_base = sanitizeRunBase(input_info.completeBaseName());
     const QString output_dir =
-        root_dir.filePath("outputs/ui_run_" + safe_base + "_" + timestamp);
-
-    const QString runner =
-        QCoreApplication::applicationDirPath()
-#ifdef Q_OS_WIN
-        + "/../scripts/run_beamlab_full.cmd";
-#else
-        + "/../scripts/run_beamlab_full.sh";
-#endif
-
-    if (!QFileInfo::exists(runner)) {
-        QMessageBox::critical(
-            this,
-            "Runner script not found",
-            "Missing script:\n" + runner
-        );
-        return;
-    }
-
-    const QString engine_path =
-        QCoreApplication::applicationDirPath() + "/beamlab";
-    const QFileInfo engine_info(engine_path);
-
-    QStringList args;
-    args << engine_info.absoluteFilePath();
-    args << input_path;
-    args << output_dir;
-    args += defaultAnalysisArguments(input_info);
+        projectRootDir().filePath("outputs/ui_run_" + safe_base + "_" + timestamp);
 
     showWorkspace();
 
     if (analysis_log_ != nullptr) {
         analysis_log_->clear();
-        analysis_log_->appendPlainText("Starting BeamLabStudio analysis");
+        analysis_log_->appendPlainText("Starting native analysis pipeline");
         analysis_log_->appendPlainText("Input: " + input_path);
         analysis_log_->appendPlainText("Output: " + output_dir);
         analysis_log_->appendPlainText("");
@@ -3167,132 +3151,7 @@ void beamlab::ui::MainWindow::openDataFileAndRunWithPath(const QString& input_pa
 
     status_label_->setText("Running analysis: " + input_info.fileName());
 
-    running_process_ = new QProcess(this);
-    running_output_dir_ = output_dir;
-    running_input_name_ = input_info.fileName();
-
-    running_process_->setProgram(runner);
-    running_process_->setArguments(args);
-    running_process_->setWorkingDirectory(root_dir.absolutePath());
-    running_process_->setProcessChannelMode(QProcess::MergedChannels);
-
-    connect(running_process_, &QProcess::readyReadStandardOutput, this, [this]() {
-        if (running_process_ == nullptr || analysis_log_ == nullptr) {
-            return;
-        }
-
-        const QString chunk =
-            QString::fromUtf8(running_process_->readAllStandardOutput()).trimmed();
-
-        if (!chunk.isEmpty()) {
-            constexpr int MAX_LOG_LINES = 10000;
-            if (analysis_log_->document()->blockCount() > MAX_LOG_LINES) {
-                QTextCursor cursor(analysis_log_->document());
-                cursor.movePosition(QTextCursor::Start);
-                cursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor,
-                    analysis_log_->document()->blockCount() - MAX_LOG_LINES);
-                cursor.removeSelectedText();
-            }
-            analysis_log_->appendPlainText(chunk);
-        }
-    });
-
-    connect(
-        running_process_,
-        &QProcess::finished,
-        this,
-        [this](const int exit_code, const QProcess::ExitStatus status) {
-            onAnalysisFinished(exit_code, status);
-        }
-    );
-
-    setAnalysisRunning(true);
-    running_process_->start();
-
-    if (!running_process_->waitForStarted(5000)) {
-        const QString error = running_process_->errorString();
-
-        if (analysis_log_ != nullptr && !error.isEmpty()) {
-            analysis_log_->appendPlainText("Failed to start analysis: " + error);
-        }
-
-        QProcess* failed_process = running_process_;
-        running_process_ = nullptr;
-        running_output_dir_.clear();
-        running_input_name_.clear();
-        failed_process->deleteLater();
-        setAnalysisRunning(false);
-
-        QMessageBox::critical(
-            this,
-            "Analysis failed to start",
-            "Could not start:\n" + runner + "\n\n" + error
-        );
-        status_label_->setText("Analysis failed to start");
-        return;
-    }
+    auto config = beamlab::core::ConfigLoader::loadDefaults();
+    analysisPresenter_->runAnalysis(input_path, output_dir, config);
 }
 
-void beamlab::ui::MainWindow::onAnalysisFinished(
-    const int exit_code,
-    const QProcess::ExitStatus status)
-{
-    if (running_process_ == nullptr) {
-        return;
-    }
-
-    if (analysis_log_ != nullptr) {
-        const QString chunk =
-            QString::fromUtf8(running_process_->readAllStandardOutput()).trimmed();
-
-        if (!chunk.isEmpty()) {
-            analysis_log_->appendPlainText(chunk);
-        }
-    }
-
-    const QString output_dir = running_output_dir_;
-    const QString input_name = running_input_name_;
-    const QString log =
-        analysis_log_ != nullptr ? analysis_log_->toPlainText() : QString();
-
-    QProcess* finished_process = running_process_;
-    running_process_ = nullptr;
-    running_output_dir_.clear();
-    running_input_name_.clear();
-    finished_process->deleteLater();
-    setAnalysisRunning(false);
-
-    if (status != QProcess::NormalExit || exit_code != 0) {
-        QMessageBox::critical(
-            this,
-            "Analysis failed",
-            "BeamLabStudio analysis failed. Last output:\n\n" + log.right(5000)
-        );
-        status_label_->setText("Analysis failed: " + input_name);
-        return;
-    }
-
-    const QString manifest_path =
-        QDir(output_dir).filePath("visualization/visualization_manifest.json");
-
-    if (!QFileInfo::exists(manifest_path)) {
-        QMessageBox::critical(
-            this,
-            "Manifest not generated",
-            "The analysis finished, but no visualization manifest was found at:\n" +
-                manifest_path +
-                "\n\nLast output:\n\n" +
-                log.right(5000)
-        );
-        status_label_->setText("Analysis finished without a manifest");
-        return;
-    }
-
-    loadManifest(manifest_path);
-
-    QMessageBox::information(
-        this,
-        "Analysis complete",
-        "Analysis finished successfully.\n\nLoaded manifest:\n" + manifest_path
-    );
-}

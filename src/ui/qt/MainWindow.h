@@ -6,6 +6,8 @@
 
 #include <vector>
 
+#include "ui/qt/presenters/AnalysisPresenter.h"
+
 class QAction;
 class QColor;
 class QCloseEvent;
@@ -210,6 +212,7 @@ private:
     QLabel* analysis_activity_label_{nullptr};
     QTimer* analysis_activity_timer_{nullptr};
     QProcess* running_process_{nullptr};
+    AnalysisPresenter* analysisPresenter_{nullptr};
 
     void openDataFileAndRun();
 };

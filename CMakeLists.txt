@@ -52,6 +52,7 @@ add_library(beamlab_core STATIC
     src/core/config/ConfigLoader.cpp
     src/core/storage/InMemoryStorage.cpp
     src/core/storage/SqliteStorage.cpp
+    src/core/pipeline/AnalysisPipeline.cpp
     src/core/storage/InMemoryStorage.cpp
     src/io/detect/FileProbe.cpp
     src/io/detect/ImportRouter.cpp
@@ -225,6 +226,7 @@ if(BEAMLAB_ENABLE_QT_UI)
 
     add_executable(beamlab_ui
         src/io/exporters/ExportManager.cpp
+        src/ui/qt/presenters/AnalysisPresenter.cpp
         src/ui/qt/main.cpp
         src/ui/qt/InteractiveGraphicsView.cpp
         src/ui/qt/MainWindow.cpp
