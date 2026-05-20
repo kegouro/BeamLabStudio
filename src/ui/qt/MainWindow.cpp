@@ -1104,9 +1104,9 @@ void MainWindow::buildUi()
         }
     );
 
-    QTimer::singleShot(0, this, [set_statistics_details_visible]() {
+    QMetaObject::invokeMethod(this, [set_statistics_details_visible]() {
         set_statistics_details_visible(false);
-    });
+    }, Qt::QueuedConnection);
 
     tabs_->addTab(statistics_page, "Statistics");
     tabs_->addTab(combined_page_, "Combined 3D");
@@ -1391,7 +1391,7 @@ void MainWindow::buildUi()
     });
 
     connect(tabs_, &QTabWidget::currentChanged, this, [this](int) {
-        QTimer::singleShot(0, this, [this]() {
+        QMetaObject::invokeMethod(this, [this]() {
             QWidget* current = tabs_->currentWidget();
 
             if (current == trajectory_plot_page_) {
@@ -1401,9 +1401,9 @@ void MainWindow::buildUi()
             } else if (current == envelope_plot_page_) {
                 fitSceneInView(envelope_view_, envelope_scene_);
             }
-        });
+        }, Qt::QueuedConnection);
 
-        QTimer::singleShot(120, this, [this]() {
+        QMetaObject::invokeMethod(this, [this]() {
             QWidget* current = tabs_->currentWidget();
 
             if (current == trajectory_plot_page_) {
@@ -1413,7 +1413,7 @@ void MainWindow::buildUi()
             } else if (current == envelope_plot_page_) {
                 fitSceneInView(envelope_view_, envelope_scene_);
             }
-        });
+        }, Qt::QueuedConnection);
     });
 
     updateCombinedDisplayMode();
@@ -3044,13 +3044,13 @@ void MainWindow::plotCsv2D(const QString& path,
     if (target_view != nullptr) {
         fitSceneInView(target_view, scene);
 
-        QTimer::singleShot(0, target_view, [target_view, scene]() {
+        QMetaObject::invokeMethod(target_view, [target_view, scene]() {
             fitSceneInView(target_view, scene);
-        });
+        }, Qt::QueuedConnection);
 
-        QTimer::singleShot(120, target_view, [target_view, scene]() {
+        QMetaObject::invokeMethod(target_view, [target_view, scene]() {
             fitSceneInView(target_view, scene);
-        });
+        }, Qt::QueuedConnection);
     }
 }
 
