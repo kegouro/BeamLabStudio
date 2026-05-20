@@ -4357,6 +4357,14 @@ void beamlab::ui::MainWindow::openDataFileAndRunWithPath(const QString& input_pa
             QString::fromUtf8(running_process_->readAllStandardOutput()).trimmed();
 
         if (!chunk.isEmpty()) {
+            constexpr int MAX_LOG_LINES = 10000;
+            if (analysis_log_->document()->blockCount() > MAX_LOG_LINES) {
+                QTextCursor cursor(analysis_log_->document());
+                cursor.movePosition(QTextCursor::Start);
+                cursor.movePosition(QTextCursor::Down, QTextCursor::KeepAnchor,
+                    analysis_log_->document()->blockCount() - MAX_LOG_LINES);
+                cursor.removeSelectedText();
+            }
             analysis_log_->appendPlainText(chunk);
         }
     });
