@@ -1,4 +1,5 @@
 #include "core/storage/InMemoryStorage.h"
+#include "core/storage/SqliteStorage.h"
 
 #include "data/model/TrajectorySample.h"
 
@@ -89,8 +90,7 @@ std::unique_ptr<ISampleStorage> ISampleStorage::create(uint64_t estimatedFileSiz
     if (estimatedFileSize < kThreshold) {
         return std::make_unique<InMemoryStorage>();
     }
-    // Large file → use SQLite backend
-    return std::make_unique<InMemoryStorage>(); // placeholder until SQLite is fully wired
+    return std::make_unique<SqliteStorage>(":memory:");
 }
 
 } // namespace beamlab::core

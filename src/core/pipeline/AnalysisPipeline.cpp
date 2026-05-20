@@ -2,13 +2,13 @@
 
 #include "analysis/statistics/BatchStatisticsEngine.h"
 #include "core/storage/ISampleStorage.h"
-#include "core/storage/InMemoryStorage.h"
+#include "core/storage/SqliteStorage.h"
 #include "data/model/AxisFrame.h"
 #include "io/importers/Geant4CsvImporter.h"
-#include "io/importers/IImporter.h"
 
 #include <filesystem>
 #include <fstream>
+#include <sys/stat.h>
 
 namespace beamlab::core {
 
@@ -31,35 +31,21 @@ PipelineResult AnalysisPipeline::run(const std::string& csvPath,
     PipelineResult result;
     result.outputDir = outputDir;
 
-    // Phase 1: Import
-    progress.onProgress({0.0, "importing", 0, 0});
+    // Determine file size for progress
+    int64_t fileSize = 0;
+    struct stat st;
+    if (stat(csvPath.c_str(), &st) == 0) fileSize = st.st_size;
+
+    // Create appropriate storage
+    auto estimatedBytes = static_cast<uint64_t>(fileSize > 0 ? fileSize : 0);
+    auto storage = ISampleStorage::create(estimatedBytes);
+
+    // Phase 1: Import directly to storage (streaming, O(1) RAM)
+    progress.onProgress({0.0, "importing", 0, fileSize});
     progress.onLogLine("Importing: " + csvPath);
 
     beamlab::io::Geant4CsvImporter importer;
-    auto inspectReport = importer.inspect(csvPath);
-    if (!inspectReport.readable) {
-        result.success = false;
-        result.errorMessage = "Cannot read file: " + csvPath;
-        progress.onComplete(false, result.errorMessage);
-        return result;
-    }
-
-    auto schema = importer.buildSchema(csvPath, inspectReport);
-    beamlab::io::ImportContext ctx;
-    ctx.preferred_display_name =
-        std::filesystem::path(csvPath).stem().string();
-
-    auto importResult = importer.import(csvPath, schema, ctx);
-    if (!importResult.success || !importResult.dataset.has_value()) {
-        result.success = false;
-        result.errorMessage = "Import failed";
-        progress.onComplete(false, result.errorMessage);
-        return result;
-    }
-
-    auto& dataset = *importResult.dataset;
-    progress.onLogLine("Imported " + std::to_string(dataset.trajectories.size())
-                       + " trajectories");
+    uint64_t imported = importer.importStreaming(csvPath, *storage, &progress);
 
     if (progress.cancelled()) {
         result.success = false;
@@ -68,36 +54,37 @@ PipelineResult AnalysisPipeline::run(const std::string& csvPath,
         return result;
     }
 
-    // Phase 2: Store in ISampleStorage
-    progress.onProgress({0.3, "storing", 0, 0});
-    auto storage = std::make_unique<InMemoryStorage>();
-    for (const auto& traj : dataset.trajectories) {
-        std::string tid = std::to_string(traj.particle.event_id)
-                        + "_" + std::to_string(traj.particle.track_id);
-        storage->beginTrajectory(tid);
-        for (const auto& s : traj.samples) storage->addSample(s);
-        storage->endTrajectory();
-    }
-    storage->flush();
-
-    if (progress.cancelled()) {
+    if (imported == 0) {
         result.success = false;
-        result.errorMessage = "Cancelled";
+        result.errorMessage = "No samples imported";
         progress.onComplete(false, result.errorMessage);
         return result;
     }
 
-    // Phase 3: Statistics
+    progress.onLogLine("Imported " + std::to_string(imported) + " samples, "
+                       + std::to_string(storage->trajectoryCount()) + " trajectories");
+
+    // Phase 2: Statistics (batch processing from storage)
     uint64_t sampleCount = storage->totalSampleCount();
     progress.onProgress({0.5, "statistics", 0, static_cast<int64_t>(sampleCount)});
-    progress.onLogLine("Computing statistics for " + std::to_string(sampleCount)
-                       + " samples");
+    progress.onLogLine("Computing statistics for " + std::to_string(sampleCount) + " samples");
+
+    // Use a default axis frame (z as longitudinal)
+    beamlab::data::AxisFrame axisFrame{};
+    axisFrame.origin = {0, 0, 0};
+    axisFrame.longitudinal = {0, 0, 1};
+    axisFrame.transverse_u = {1, 0, 0};
+    axisFrame.transverse_v = {0, 1, 0};
 
     auto statsEngine = beamlab::analysis::BatchStatisticsEngine{};
-    auto stats = statsEngine.compute(*storage, dataset.axis_frame);
+    beamlab::analysis::FrameStatisticsParameters statsParams;
+    statsParams.reference_mode = beamlab::analysis::ReferenceMode::AxialBins;
+    statsParams.axial_binning_mode = beamlab::analysis::AxialBinningMode::Uniform;
+    statsParams.axial_bin_count = 501;
+    auto stats = statsEngine.compute(*storage, axisFrame, statsParams);
     progress.onLogLine("Statistics: " + std::to_string(stats.size()) + " frames");
 
-    // Phase 4: Export manifest
+    // Phase 3: Export
     progress.onProgress({0.8, "exporting", 0, 0});
     std::filesystem::create_directories(outputDir);
     std::string manifestPath = outputDir + "/analysis_summary.txt";
@@ -105,14 +92,14 @@ PipelineResult AnalysisPipeline::run(const std::string& csvPath,
     if (out) {
         out << "BeamLabStudio Analysis Summary\n";
         out << "Input: " << csvPath << "\n";
-        out << "Trajectories: " << dataset.trajectories.size() << "\n";
+        out << "Trajectories: " << storage->trajectoryCount() << "\n";
         out << "Samples: " << sampleCount << "\n";
         out << "Statistics frames: " << stats.size() << "\n";
     }
 
     result.success = true;
     result.manifestPath = manifestPath;
-    progress.onProgress({1.0, "complete", 0, 0});
+    progress.onProgress({1.0, "complete", fileSize, fileSize});
     progress.onComplete(true, "Analysis complete");
     return result;
 }
