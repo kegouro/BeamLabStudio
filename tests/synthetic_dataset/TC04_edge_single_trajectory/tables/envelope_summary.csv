@@ -1,0 +1,2 @@
+slice_index,reference_value_m,axial_position_m,input_points,boundary_points,area_m2,perimeter_m,method_name,valid
+0,0.15,0.15,1,1,7.85e-8,9.95e-4,ConvexHull,true

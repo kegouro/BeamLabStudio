@@ -28,6 +28,8 @@ public:
     void setLayerMaxPolylines(int layer_index, int max_polylines);
     void setLayerOpacity(int layer_index, double opacity);
     void setLayerLineWidth(int layer_index, double width);
+    void loadLayerEnergyCSV(int layer_index, const QString& path);
+    void setLayerEnergyGradient(int layer_index, bool enabled);
     void setTrajectoryParameter(double lambda);
     void setAxesVisible(bool visible);
     void setMeasureGuidesVisible(bool visible);
@@ -75,6 +77,10 @@ private:
         std::vector<Vec3> vertices{};
         std::vector<Face> faces{};
         std::vector<Polyline> polylines{};
+        std::vector<double> vertex_energies{};
+        double energy_min{0.0};
+        double energy_max{1.0};
+        bool energy_gradient{false};
         bool visible{true};
         QColor color{120, 170, 255};
         double opacity{1.0};
@@ -83,6 +89,9 @@ private:
     };
 
     bool parseObjIntoLayer(const QString& path, Layer& layer) const;
+    static QColor energyToColor(double t);
+    void drawEnergyScaleBar(QPainter& painter, const Layer& layer,
+                            double top_reserved, double available_h) const;
     Vec3 rotate(const Vec3& p) const;
     void updateBounds();
     void applyFreeRotation(double yaw_delta, double pitch_delta);

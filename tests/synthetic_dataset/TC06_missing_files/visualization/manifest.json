@@ -1,0 +1,17 @@
+{
+  "axis_mode": "z",
+  "reference_mode": "axial",
+  "binning_mode": "uniform",
+  "axial_bin_count": 10,
+  "half_window_frames": 3,
+  "trajectories_preview": 0,
+  "focal_slice_points": 0,
+  "envelope_rings": 0,
+  "trajectories_preview_csv": "MISSING_trajectories.csv",
+  "focal_slice_points_csv": "MISSING_focal_slice.csv",
+  "envelope_rings_csv": "MISSING_envelope.csv",
+  "trajectories_preview_obj": "trajectories_preview.obj",
+  "beam_caustic_preview_obj": "MISSING_caustic.obj",
+  "effective_lens_body_preview_obj": "MISSING_lens.obj",
+  "full_beam_envelope_preview_obj": ""
+}

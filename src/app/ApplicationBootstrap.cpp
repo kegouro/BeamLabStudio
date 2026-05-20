@@ -39,7 +39,7 @@
 #include "io/importers/RootNativeImporter.h"
 #endif
 #include "io/normalization/DatasetNormalizer.h"
-#include "simulation/scoring/ScoringPlane.h"
+#include "biosim/core/ScoringPlane.h"
 #include "biosim/core/ScoringPlaneDetector.h"
 
 #include <algorithm>

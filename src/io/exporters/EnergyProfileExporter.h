@@ -3,8 +3,6 @@
 #include "data/model/TrajectoryDataset.h"
 #include "io/common/ExportResult.h"
 #include "biosim/core/ScoringPlane.h"
-#include "simulation/tissue/TissueSlab.h"
-
 #include <string>
 #include <vector>
 
@@ -33,11 +31,6 @@ public:
         const std::vector<beamlab::biosim::ScoringPlane>& planes,
         const std::string& output_path) const;
 
-    // Tissue slab dose summary.
-    [[nodiscard]] ExportResult exportSlabDose(
-        const std::vector<beamlab::simulation::TissueSlab>& slabs,
-        const beamlab::data::TrajectoryDataset& dataset,
-        const std::string& output_path) const;
 };
 
 } // namespace beamlab::io

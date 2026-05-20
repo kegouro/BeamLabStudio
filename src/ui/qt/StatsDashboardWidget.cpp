@@ -1,4 +1,5 @@
 #include "ui/qt/StatsDashboardWidget.h"
+#include "ui/qt/InteractiveGraphicsView.h"
 
 #include <QBrush>
 #include <QDir>
@@ -224,39 +225,46 @@ StatsDashboardWidget::StatsDashboardWidget(QWidget* parent)
     : QWidget(parent)
 {
     auto* layout = new QVBoxLayout(this);
-
-    auto* chart_grid = new QGridLayout();
-    chart_grid->setSpacing(6);
-    chart_grid->setContentsMargins(6, 6, 6, 6);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
     focus_scene_ = new QGraphicsScene(this);
     envelope_area_scene_ = new QGraphicsScene(this);
     point_count_scene_ = new QGraphicsScene(this);
     radial_histogram_scene_ = new QGraphicsScene(this);
 
-    focus_view_ = new QGraphicsView(focus_scene_, this);
-    envelope_area_view_ = new QGraphicsView(envelope_area_scene_, this);
-    point_count_view_ = new QGraphicsView(point_count_scene_, this);
-    radial_histogram_view_ = new QGraphicsView(radial_histogram_scene_, this);
+    focus_view_ = new InteractiveGraphicsView(focus_scene_, this);
+    envelope_area_view_ = new InteractiveGraphicsView(envelope_area_scene_, this);
+    point_count_view_ = new InteractiveGraphicsView(point_count_scene_, this);
+    radial_histogram_view_ = new InteractiveGraphicsView(radial_histogram_scene_, this);
 
     for (auto* view : {
-             focus_view_,
-             envelope_area_view_,
-             point_count_view_,
-             radial_histogram_view_
+             static_cast<QGraphicsView*>(focus_view_),
+             static_cast<QGraphicsView*>(envelope_area_view_),
+             static_cast<QGraphicsView*>(point_count_view_),
+             static_cast<QGraphicsView*>(radial_histogram_view_)
          }) {
-        view->setMinimumHeight(240);
+        view->setMinimumHeight(280);
         view->setRenderHint(QPainter::Antialiasing, true);
         view->setBackgroundBrush(bg());
         view->setFrameShape(QFrame::StyledPanel);
-        view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        view->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::MinimumExpanding);
     }
 
-    chart_grid->addWidget(focus_view_, 0, 0);
-    chart_grid->addWidget(envelope_area_view_, 0, 1);
-    chart_grid->addWidget(point_count_view_, 1, 0);
-    chart_grid->addWidget(radial_histogram_view_, 1, 1);
+    // Charts live in a scrollable vertical column.
+    auto* charts_container = new QWidget(this);
+    auto* charts_layout = new QVBoxLayout(charts_container);
+    charts_layout->setSpacing(8);
+    charts_layout->setContentsMargins(6, 6, 6, 6);
+    charts_layout->addWidget(focus_view_);
+    charts_layout->addWidget(envelope_area_view_);
+    charts_layout->addWidget(point_count_view_);
+    charts_layout->addWidget(radial_histogram_view_);
+
+    auto* charts_scroll = new QScrollArea(this);
+    charts_scroll->setWidget(charts_container);
+    charts_scroll->setWidgetResizable(true);
+    charts_scroll->setFrameShape(QFrame::NoFrame);
 
     report_preview_ = new QPlainTextEdit(this);
     report_preview_->setReadOnly(true);
@@ -306,11 +314,15 @@ StatsDashboardWidget::StatsDashboardWidget(QWidget* parent)
         exportBeamRadiusCsvFromDialog();
     });
 
-    layout->setSpacing(6);
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->addLayout(chart_grid, 1);
-    layout->addWidget(inspector_box, 0);
-    layout->addWidget(report_preview_, 0);
+    layout->addWidget(charts_scroll, 1);
+
+    auto* bottom_container = new QWidget(this);
+    auto* bottom_layout = new QVBoxLayout(bottom_container);
+    bottom_layout->setSpacing(6);
+    bottom_layout->setContentsMargins(8, 4, 8, 8);
+    bottom_layout->addWidget(inspector_box, 0);
+    bottom_layout->addWidget(report_preview_, 0);
+    layout->addWidget(bottom_container, 0);
 }
 
 void StatsDashboardWidget::resizeEvent(QResizeEvent* event)
@@ -321,18 +333,9 @@ void StatsDashboardWidget::resizeEvent(QResizeEvent* event)
 
 void StatsDashboardWidget::fitCharts()
 {
-    for (auto [view, scene] : {
-             std::pair<QGraphicsView*, QGraphicsScene*>{focus_view_, focus_scene_},
-             std::pair<QGraphicsView*, QGraphicsScene*>{envelope_area_view_, envelope_area_scene_},
-             std::pair<QGraphicsView*, QGraphicsScene*>{point_count_view_, point_count_scene_},
-             std::pair<QGraphicsView*, QGraphicsScene*>{radial_histogram_view_, radial_histogram_scene_}
-         }) {
-        if (view == nullptr || scene == nullptr || scene->sceneRect().isEmpty()) {
-            continue;
-        }
-
-        view->resetTransform();
-        view->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+    for (auto* view : {focus_view_, envelope_area_view_,
+                        point_count_view_, radial_histogram_view_}) {
+        if (view != nullptr) view->resetView();
     }
 }
 

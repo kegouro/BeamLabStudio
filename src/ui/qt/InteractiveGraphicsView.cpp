@@ -2,6 +2,7 @@
 
 #include <QGraphicsScene>
 #include <QMouseEvent>
+#include <QResizeEvent>
 #include <QScrollBar>
 #include <QWheelEvent>
 
@@ -43,6 +44,12 @@ void InteractiveGraphicsView::resetView()
     current_scene->setSceneRect(bounds);
     resetTransform();
     fitInView(bounds, Qt::KeepAspectRatio);
+}
+
+void InteractiveGraphicsView::resizeEvent(QResizeEvent* event)
+{
+    QGraphicsView::resizeEvent(event);
+    resetView();
 }
 
 void InteractiveGraphicsView::wheelEvent(QWheelEvent* event)

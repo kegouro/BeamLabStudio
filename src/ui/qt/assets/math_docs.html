@@ -68,11 +68,10 @@ las fórmulas implementadas.</p>
 <div class="toc"><strong>Contenido</strong><br/>
 <a href="#mod-FocusDetection">Detección del Foco — Mínimo de la Curva Métrica</a>
 <a href="#mod-FrameStatistics">Estadísticas por Frame — Radio RMS Transversal</a>
+<a href="#mod-ScoringPlanes">Detección de Planos de Scoring — Análisis de Densidad</a>
 <a href="#mod-Geant4Import">Importación de CSV Geant4 — Conversión de Unidades</a>
 <a href="#mod-AxisFrame">Resolución del Marco de Referencia del Haz</a>
 <a href="#mod-Normalization">Normalización del Dataset — Resúmenes por Trayectoria</a>
-<a href="#mod-BetheBloch">Fórmula de Bethe-Bloch — Pérdida de Energía</a>
-<a href="#mod-ScoringPlanes">Detección de Planos de Scoring — Análisis de Densidad</a>
 </div>
 <h2 id="mod-FocusDetection">Detección del Foco — Mínimo de la Curva Métrica</h2>
 <div class="source">⟵ src/analysis/focus/FocusDetector.cpp</div>
@@ -115,6 +114,26 @@ las fórmulas implementadas.</p>
 <p>Equal-count: bins con igual número de puntos (percentiles).</p>
 <p>Sincronizado: usa el índice de muestra como "tiempo" (requiere ≥80 % de</p>
 <p>trayectorias con el mismo número de pasos).</p>
+<hr/>
+<h2 id="mod-ScoringPlanes">Detección de Planos de Scoring — Análisis de Densidad</h2>
+<div class="source">⟵ src/biosim/core/ScoringPlaneDetector.cpp</div>
+<p>Los planos de scoring (entrada, salida, contador) se detectan automáticamente</p>
+<p>analizando la densidad de puntos a lo largo del eje longitudinal.</p>
+<h3>Histograma de densidad axial</h3>
+<p>Se divide el rango axial [s_min, s_max] en N_bins bins de ancho uniforme:</p>
+<code class="formula">Δs = (s_max − s_min) / N_bins</code>
+<p>Cada bin acumula los puntos de todas las trayectorias cuya coordenada s cae</p>
+<p>en su intervalo [s_min + k·Δs, s_min + (k+1)·Δs).</p>
+<h3>Detección de flancos (transiciones)</h3>
+<p>Sea P_peak el conteo máximo del histograma.  Se definen dos umbrales:</p>
+<code class="formula">umbral_alto = f_high · P_peak   (por defecto f_high = 0.30)</code>
+<code class="formula">umbral_bajo = f_low  · P_peak   (por defecto f_low  = 0.05)</code>
+<p>Flanco ascendente (entrada): bin k con P[k] &amp;lt; umbral_bajo  →  P[k+1] &gt; umbral_alto</p>
+<p>Flanco descendente (salida):  bin k con P[k] &gt; umbral_alto  →  P[k+1] &amp;lt; umbral_bajo</p>
+<span class="note">ℹ Sólo se marcan flancos con al menos min_crossings trayectorias (por defecto 10).</span>
+<h3>Plano contador genérico</h3>
+<p>Se añade automáticamente un plano contador en la posición media del haz:</p>
+<code class="formula">s_mid = (s_min + s_max) / 2</code>
 <hr/>
 <h2 id="mod-Geant4Import">Importación de CSV Geant4 — Conversión de Unidades</h2>
 <div class="source">⟵ src/io/importers/Geant4CsvImporter.cpp</div>
@@ -176,51 +195,6 @@ las fórmulas implementadas.</p>
 <code class="formula">E_entry = kinE_MeV del primer paso (después de ordenar por t)</code>
 <code class="formula">E_exit  = kinE_MeV del último paso</code>
 <span class="note">ℹ E_entry ≈ E_gun para el primer paso del primario en Geant4.</span>
-<hr/>
-<h2 id="mod-BetheBloch">Fórmula de Bethe-Bloch — Pérdida de Energía</h2>
-<div class="source">⟵ src/simulation/physics/BetheBlochEngine.cpp</div>
-<p>Calcula el poder de frenado (stopping power) medio de una partícula cargada</p>
-<p>pesada atravesando un material.  Referencia: PDG 2022, cap. 34, ec. 34.5.</p>
-<p>Válido para 0.1 &amp;lt; β·γ &amp;lt; ~1000 (bien sobre el umbral de producción de rayos δ).</p>
-<code class="formula">-dE/dx = K · z² · (Z/A) / β² · [ ½ · ln( 2mₑc²β²γ²Wmax / I² ) − β² ]</code>
-<code class="var">  K = 0.307075 MeV·cm²/g  ← constante de Bethe (K = 4πNₐrₑ²mₑc²)</code>
-<code class="var">  z = carga de la partícula incidente en unidades de |e|  (muón → z = 1)</code>
-<code class="var">  Z/A = número atómico efectivo / masa atómica efectiva del material</code>
-<code class="var">  β = v/c,  γ = 1/√(1−β²),  donde  γ = 1 + T/Mc²  (T = energía cinética)</code>
-<code class="var">  Wmax = 2mₑc²β²γ² / [1 + 2γmₑ/M + (mₑ/M)²]  ← transferencia máxima al electrón</code>
-<code class="var">  I = energía media de excitación del material (tabla ICRU-49)</code>
-<span class="note">ℹ Se usa el poder de frenado másico S(β) = -dE/ρdx [MeV·cm²/g];</span>
-<span class="note">ℹ el lineal se obtiene multiplicando por la densidad ρ [g/cm³]:</span>
-<code class="formula">-dE/dx [MeV/cm] = S(β) · ρ</code>
-<span class="note">ℹ Para el muón: M = 105.6583755 MeV/c², z = ±1.</span>
-<h3>Dosis absorbida (Grays)</h3>
-<p>La dosis absorbida D en un material de masa m cuando se deposita una</p>
-<p>energía ΔE es:</p>
-<code class="formula">D [Gy] = ΔE [J] / m [kg]   donde  1 MeV = 1.602176634 × 10⁻¹³ J</code>
-<span class="note">ℹ 1 Gy = 1 J/kg.  En radioterapia 1 Gy ≡ 1 Sv para radiación de bajo LET.</span>
-<span class="note">ℹ Para un paso de longitud Δx [cm] en un material de densidad ρ [g/cm³]</span>
-<span class="note">ℹ y sección transversal A = 1 cm²:</span>
-<code class="formula">m = ρ [g/cm³] · 10⁻³ [kg/g] · A [cm²] · 10⁻⁴ [m²/cm²] · Δx [cm] · 10⁻² [m/cm]</code>
-<hr/>
-<h2 id="mod-ScoringPlanes">Detección de Planos de Scoring — Análisis de Densidad</h2>
-<div class="source">⟵ src/simulation/scoring/ScoringPlaneDetector.cpp</div>
-<p>Los planos de scoring (entrada, salida, contador) se detectan automáticamente</p>
-<p>analizando la densidad de puntos a lo largo del eje longitudinal.</p>
-<h3>Histograma de densidad axial</h3>
-<p>Se divide el rango axial [s_min, s_max] en N_bins bins de ancho uniforme:</p>
-<code class="formula">Δs = (s_max − s_min) / N_bins</code>
-<p>Cada bin acumula los puntos de todas las trayectorias cuya coordenada s cae</p>
-<p>en su intervalo [s_min + k·Δs, s_min + (k+1)·Δs).</p>
-<h3>Detección de flancos (transiciones)</h3>
-<p>Sea P_peak el conteo máximo del histograma.  Se definen dos umbrales:</p>
-<code class="formula">umbral_alto = f_high · P_peak   (por defecto f_high = 0.30)</code>
-<code class="formula">umbral_bajo = f_low  · P_peak   (por defecto f_low  = 0.05)</code>
-<p>Flanco ascendente (entrada): bin k con P[k] &amp;lt; umbral_bajo  →  P[k+1] &gt; umbral_alto</p>
-<p>Flanco descendente (salida):  bin k con P[k] &gt; umbral_alto  →  P[k+1] &amp;lt; umbral_bajo</p>
-<span class="note">ℹ Sólo se marcan flancos con al menos min_crossings trayectorias (por defecto 10).</span>
-<h3>Plano contador genérico</h3>
-<p>Se añade automáticamente un plano contador en la posición media del haz:</p>
-<code class="formula">s_mid = (s_min + s_max) / 2</code>
-<p class="timestamp">Generado automáticamente el 2026-05-07 15:27:32 a partir de los bloques //!@math en el código fuente.</p>
+<p class="timestamp">Generado automáticamente el 2026-05-20 01:39:07 a partir de los bloques //!@math en el código fuente.</p>
 </body>
 </html>

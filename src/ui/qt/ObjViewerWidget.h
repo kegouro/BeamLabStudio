@@ -13,10 +13,15 @@ class QPainter;
 namespace beamlab::ui {
 
 class ObjViewerWidget final : public QWidget {
+    Q_OBJECT
 public:
     explicit ObjViewerWidget(QWidget* parent = nullptr);
 
     bool loadObj(const QString& path);
+    // Load per-vertex kinE_MeV from trajectories_preview.csv (row order must
+    // match OBJ vertex order, which holds when both are exported with the same
+    // max_trajectories / max_samples parameters).
+    void loadEnergyCSV(const QString& path);
     void resetCamera();
     void setViewPreset(int preset);
     void frameLongestAxisHorizontally();
@@ -25,14 +30,22 @@ public:
     bool axesVisible() const;
     bool measureGuidesVisible() const;
 
+    void setEnergyGradientEnabled(bool enabled);
+    bool energyGradientEnabled() const;
+
     // Limit the number of polylines ('l' OBJ entries) rendered.
     // -1 = render all (default). 0 = render none.
     void setMaxPolylines(int max);
     int polylineCount() const;
 
+signals:
+    // Emitted on a click (no drag) when energy gradient is active.
+    void energyPicked(double kinE_MeV, QPointF screen_pos);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
@@ -69,6 +82,10 @@ private:
                              double scale,
                              double center_y,
                              const QRectF& content_bounds) const;
+    void drawEnergyScaleBar(QPainter& painter,
+                            double top_reserved,
+                            double available_h) const;
+    static QColor energyToColor(double t);
 
     struct Polyline {
         std::vector<int> indices{};
@@ -78,6 +95,12 @@ private:
     std::vector<Face> faces_{};
     std::vector<Polyline> polylines_{};
     int max_polylines_{-1};
+
+    // Per-vertex kinetic energy for gradient coloring (parallel to vertices_).
+    std::vector<double> vertex_energies_{};
+    double energy_min_{0.0};
+    double energy_max_{1.0};
+    bool energy_gradient_{false};
 
     Vec3 center_{};
     Vec3 bounds_min_{};
@@ -89,6 +112,7 @@ private:
     QPointF pan_{0.0, 0.0};
 
     QPoint last_mouse_pos_{};
+    bool mouse_moved_{false};
     QString loaded_path_{};
     QString status_text_{"No OBJ loaded"};
     bool axes_visible_{true};

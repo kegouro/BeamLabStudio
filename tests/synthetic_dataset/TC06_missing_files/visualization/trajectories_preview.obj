@@ -1,0 +1,6 @@
+# TC06 stub OBJ — other files intentionally missing
+# vertices: x_m y_m z_m
+v 0.000000e+00 0.000000e+00 0.000000e+00
+v 0.000000e+00 0.000000e+00 3.000000e-01
+
+l 1 2

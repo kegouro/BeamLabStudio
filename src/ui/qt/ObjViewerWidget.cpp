@@ -1,5 +1,6 @@
 #include "ui/qt/ObjViewerWidget.h"
 
+#include <QColor>
 #include <QFile>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -12,7 +13,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <limits>
+#include <tuple>
+#include <unordered_map>
 
 namespace beamlab::ui {
 namespace {
@@ -157,6 +162,7 @@ bool ObjViewerWidget::loadObj(const QString& path)
 
     updateBounds();
     resetCamera();
+    vertex_energies_.clear();  // invalidate stale energy data on new OBJ load
 
     status_text_ =
         QString("Loaded OBJ | vertices: %1 | faces: %2 | polylines: %3")
@@ -166,6 +172,228 @@ bool ObjViewerWidget::loadObj(const QString& path)
 
     update();
     return !vertices_.empty();
+}
+
+void ObjViewerWidget::loadEnergyCSV(const QString& path)
+{
+    vertex_energies_.clear();
+    if (vertices_.empty()) return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    QTextStream stream(&file);
+
+    // --- Pass 1: build coordinate → kinE_MeV map from CSV ---
+    // CSV columns: trajectory_index(0), sample_index(1), time_s(2),
+    //              x_m(3), y_m(4), z_m(5), edep_MeV(6), edep_eV(7), kinE_MeV(8)
+    // Both OBJ and CSV use the same source values with the same precision, so
+    // parsed doubles compare exactly. Trajectory skip mismatches (<2 samples)
+    // are rare; coordinate lookup handles them correctly in all cases.
+    struct CoordHash {
+        std::size_t operator()(const std::tuple<double,double,double>& k) const {
+            // Bit-cast each double to uint64 and mix.
+            auto h = [](double v) -> std::size_t {
+                std::uint64_t bits{};
+                static_assert(sizeof(bits) == sizeof(v));
+                std::memcpy(&bits, &v, sizeof(v));
+                return std::hash<std::uint64_t>{}(bits);
+            };
+            auto seed = h(std::get<0>(k));
+            seed ^= h(std::get<1>(k)) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            seed ^= h(std::get<2>(k)) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            return seed;
+        }
+    };
+    std::unordered_map<std::tuple<double,double,double>, double, CoordHash> coord_map;
+    coord_map.reserve(vertices_.size() * 2);
+
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine().trimmed();
+        if (line.isEmpty() || line.startsWith('#') ||
+            line.startsWith("trajectory")) {
+            continue;
+        }
+        const QStringList parts = line.split(',');
+        if (parts.size() < 9) continue;
+
+        bool ok_x{}, ok_y{}, ok_z{}, ok_e{};
+        const double x = parts[3].toDouble(&ok_x);
+        const double y = parts[4].toDouble(&ok_y);
+        const double z = parts[5].toDouble(&ok_z);
+        const double e = parts[8].toDouble(&ok_e);
+        if (!ok_x || !ok_y || !ok_z || !ok_e) continue;
+
+        coord_map.emplace(std::make_tuple(x, y, z), e);
+    }
+
+    if (coord_map.empty()) return;
+
+    // --- Pass 2: assign energy to each OBJ vertex via coordinate lookup ---
+    double e_min = std::numeric_limits<double>::infinity();
+    double e_max = -std::numeric_limits<double>::infinity();
+    int matched = 0;
+
+    vertex_energies_.resize(vertices_.size(), 0.0);
+    std::vector<double> matched_energies;
+    matched_energies.reserve(vertices_.size());
+    for (std::size_t i = 0; i < vertices_.size(); ++i) {
+        const auto& v = vertices_[i];
+        auto it = coord_map.find(std::make_tuple(v.x, v.y, v.z));
+        if (it != coord_map.end()) {
+            vertex_energies_[i] = it->second;
+            e_min = std::min(e_min, it->second);
+            e_max = std::max(e_max, it->second);
+            matched_energies.push_back(it->second);
+            ++matched;
+        }
+    }
+
+    if (matched == 0) {
+        vertex_energies_.clear();
+        return;
+    }
+
+    // Use P1–P99 percentiles for the colour scale so a few outlier samples
+    // (e.g. a particle that fully stops) do not flatten the visible gradient.
+    double p_lo = e_min;
+    double p_hi = e_max;
+    if (matched_energies.size() >= 100) {
+        const std::size_t lo_idx = static_cast<std::size_t>(0.01 * static_cast<double>(matched_energies.size()));
+        const std::size_t hi_idx = std::min(matched_energies.size() - 1,
+                                            static_cast<std::size_t>(0.99 * static_cast<double>(matched_energies.size())));
+        std::nth_element(matched_energies.begin(),
+                         matched_energies.begin() + static_cast<std::ptrdiff_t>(lo_idx),
+                         matched_energies.end());
+        p_lo = matched_energies[lo_idx];
+        std::nth_element(matched_energies.begin() + static_cast<std::ptrdiff_t>(lo_idx) + 1,
+                         matched_energies.begin() + static_cast<std::ptrdiff_t>(hi_idx),
+                         matched_energies.end());
+        p_hi = matched_energies[hi_idx];
+    }
+    if (!(p_hi > p_lo)) {
+        p_hi = p_lo + 0.5;
+        p_lo -= 0.5;
+    }
+
+    energy_min_ = p_lo;
+    energy_max_ = p_hi;
+
+    // Update status to reflect energy range.
+    status_text_ = QString("OBJ loaded | Energy P1–P99: [%1, %2] MeV | full [%3, %4] | %5/%6 vertices matched")
+        .arg(p_lo, 0, 'f', 2)
+        .arg(p_hi, 0, 'f', 2)
+        .arg(e_min, 0, 'g', 4)
+        .arg(e_max, 0, 'g', 4)
+        .arg(matched)
+        .arg(static_cast<int>(vertices_.size()));
+
+    update();
+}
+
+void ObjViewerWidget::setEnergyGradientEnabled(const bool enabled)
+{
+    energy_gradient_ = enabled;
+    update();
+}
+
+bool ObjViewerWidget::energyGradientEnabled() const
+{
+    return energy_gradient_;
+}
+
+// static
+QColor ObjViewerWidget::energyToColor(const double t)
+{
+    // Temperature gradient: blue(cold) → cyan → green → yellow → red(hot)
+    struct Stop { double pos; int r, g, b; };
+    constexpr std::array<Stop, 5> stops{{
+        {0.00,   0,   0, 230},
+        {0.25,   0, 200, 255},
+        {0.50,   0, 230,  80},
+        {0.75, 255, 210,   0},
+        {1.00, 255,  40,   0}
+    }};
+    const double tc = std::clamp(t, 0.0, 1.0);
+    int seg = 0;
+    for (; seg < 3; ++seg) {
+        if (tc <= stops[static_cast<std::size_t>(seg + 1)].pos) break;
+    }
+    const auto& s0 = stops[static_cast<std::size_t>(seg)];
+    const auto& s1 = stops[static_cast<std::size_t>(seg + 1)];
+    const double f = (tc - s0.pos) / (s1.pos - s0.pos);
+    return QColor(
+        static_cast<int>(s0.r + f * (s1.r - s0.r)),
+        static_cast<int>(s0.g + f * (s1.g - s0.g)),
+        static_cast<int>(s0.b + f * (s1.b - s0.b))
+    );
+}
+
+void ObjViewerWidget::drawEnergyScaleBar(QPainter& painter,
+                                         const double top_reserved,
+                                         const double available_h) const
+{
+    if (vertex_energies_.empty()) return;
+
+    const int bar_w  = 14;
+    const int bar_h  = static_cast<int>(available_h) - 40;
+    const int bar_x  = width() - bar_w - 56;
+    const int bar_y  = static_cast<int>(top_reserved) + 20;
+
+    if (bar_h <= 0) return;
+
+    painter.save();
+
+    // Gradient strip (one line per pixel row).
+    for (int y = 0; y < bar_h; ++y) {
+        const double t = 1.0 - static_cast<double>(y) / static_cast<double>(bar_h);
+        painter.setPen(energyToColor(t));
+        painter.drawLine(bar_x, bar_y + y, bar_x + bar_w - 1, bar_y + y);
+    }
+    painter.setPen(QColor(150, 165, 190));
+    painter.drawRect(bar_x, bar_y, bar_w - 1, bar_h - 1);
+
+    // Tick marks and labels (5 ticks).  Pick precision dynamically so a narrow
+    // range over a large absolute (e.g. 2899–3000 MeV) does not collapse all
+    // tick labels to the same scientific-notation digits.
+    QFont f = painter.font();
+    f.setPointSizeF(7.0);
+    painter.setFont(f);
+
+    const double e_span = energy_max_ - energy_min_;
+    const double tick_step = e_span / 4.0;
+    int decimals = 0;
+    if (tick_step > 0.0) {
+        const double mag = std::log10(tick_step);
+        decimals = std::clamp(1 - static_cast<int>(std::floor(mag)), 0, 6);
+    }
+
+    for (int ti = 0; ti <= 4; ++ti) {
+        const double frac = static_cast<double>(ti) / 4.0;
+        const int y = bar_y + static_cast<int>((1.0 - frac) * static_cast<double>(bar_h));
+        const double e = energy_min_ + frac * e_span;
+
+        painter.setPen(QColor(150, 165, 190));
+        painter.drawLine(bar_x - 4, y, bar_x, y);
+
+        painter.setPen(QColor(210, 220, 235));
+        painter.drawText(
+            bar_x - 52, y - 9, 46, 18,
+            Qt::AlignRight | Qt::AlignVCenter,
+            QString::number(e, 'f', decimals)
+        );
+    }
+
+    // Rotated unit label to the right of the bar.
+    painter.translate(bar_x + bar_w + 14, bar_y + bar_h / 2.0);
+    painter.rotate(90);
+    painter.setPen(QColor(160, 175, 200));
+    f.setPointSizeF(7.0);
+    painter.setFont(f);
+    painter.drawText(QRect(-36, -9, 72, 18), Qt::AlignCenter,
+                     QStringLiteral("kinE [MeV]"));
+
+    painter.restore();
 }
 
 void ObjViewerWidget::resetCamera()
@@ -864,14 +1092,22 @@ void ObjViewerWidget::paintEvent(QPaintEvent*)
     }
 
     if (!polylines_.empty()) {
-        QPen line_pen(QColor(120, 255, 210, 120));
-        line_pen.setWidthF(0.9);
-        painter.setPen(line_pen);
-
         const int n_total = static_cast<int>(polylines_.size());
         const int n_draw = (max_polylines_ < 0)
             ? n_total
             : std::min(max_polylines_, n_total);
+
+        const bool use_gradient =
+            energy_gradient_ &&
+            vertex_energies_.size() == vertices_.size();
+        const double e_span = energy_max_ - energy_min_;
+        const int nv = static_cast<int>(vertices_.size());
+
+        if (!use_gradient) {
+            QPen line_pen(QColor(120, 255, 210, 120));
+            line_pen.setWidthF(0.9);
+            painter.setPen(line_pen);
+        }
 
         for (int pi = 0; pi < n_draw; ++pi) {
             const auto& poly = polylines_[static_cast<std::size_t>(pi)];
@@ -879,10 +1115,15 @@ void ObjViewerWidget::paintEvent(QPaintEvent*)
                 const int a = poly.indices[si - 1];
                 const int b = poly.indices[si];
 
-                if (a < 0 || b < 0 ||
-                    a >= static_cast<int>(vertices_.size()) ||
-                    b >= static_cast<int>(vertices_.size())) {
-                    continue;
+                if (a < 0 || b < 0 || a >= nv || b >= nv) continue;
+
+                if (use_gradient) {
+                    const double ea = vertex_energies_[static_cast<std::size_t>(a)];
+                    const double eb = vertex_energies_[static_cast<std::size_t>(b)];
+                    const double t = 0.5 * (ea + eb - 2.0 * energy_min_) / e_span;
+                    QPen gpen(energyToColor(t));
+                    gpen.setWidthF(1.2);
+                    painter.setPen(gpen);
                 }
 
                 painter.drawLine(toScreen(a), toScreen(b));
@@ -919,6 +1160,10 @@ void ObjViewerWidget::paintEvent(QPaintEvent*)
         );
     }
 
+    if (energy_gradient_ && !vertex_energies_.empty()) {
+        drawEnergyScaleBar(painter, top_reserved, available_h);
+    }
+
     painter.setPen(QPen(QColor(180, 190, 210)));
     const QString footer =
         QString("free camera  |  zoom=%1  |  arrows rotate  |  Shift+arrows pan  |  Ctrl+left/right roll  |  H horizontal fit")
@@ -941,13 +1186,48 @@ void ObjViewerWidget::paintEvent(QPaintEvent*)
 void ObjViewerWidget::mousePressEvent(QMouseEvent* event)
 {
     last_mouse_pos_ = event->pos();
+    mouse_moved_ = false;
     setFocus();
+}
+
+void ObjViewerWidget::mouseReleaseEvent(QMouseEvent* event)
+{
+    if (mouse_moved_) return;
+    if (event->button() != Qt::LeftButton) return;
+    if (!energy_gradient_ || vertex_energies_.size() != vertices_.size()) return;
+
+    // Find nearest projected vertex within 16 px.
+    const QPointF click(event->pos());
+    int best_idx = -1;
+    double best_dist2 = 16.0 * 16.0;
+
+    for (int i = 0; i < static_cast<int>(vertices_.size()); ++i) {
+        const QPointF sp = project(vertices_[static_cast<std::size_t>(i)]);
+        const double dx = sp.x() - click.x();
+        const double dy = sp.y() - click.y();
+        const double d2 = dx * dx + dy * dy;
+        if (d2 < best_dist2) {
+            best_dist2 = d2;
+            best_idx = i;
+        }
+    }
+
+    if (best_idx >= 0) {
+        emit energyPicked(
+            vertex_energies_[static_cast<std::size_t>(best_idx)],
+            project(vertices_[static_cast<std::size_t>(best_idx)])
+        );
+    }
 }
 
 void ObjViewerWidget::mouseMoveEvent(QMouseEvent* event)
 {
     const QPoint delta = event->pos() - last_mouse_pos_;
     last_mouse_pos_ = event->pos();
+
+    if (event->buttons() != Qt::NoButton) {
+        mouse_moved_ = true;
+    }
 
     if (event->buttons() & Qt::LeftButton) {
         applyFreeRotation(

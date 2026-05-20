@@ -1,0 +1,122 @@
+================================================================================
+  BIOSIM MODULE — MEMORY & PROGRESS LOG
+  Proyecto: BeamLabStudio / src/biosim/
+  Inicio: 2026-05-10
+================================================================================
+
+DESCRIPCIÓN DEL MÓDULO
+──────────────────────
+Módulo biológico externo (namespace beamlab::biosim) que NO toca el código
+existente. Se monta como nueva tab "Bio Simulator" en MainWindow.
+
+OBJETIVO:
+  - Cargar trayectorias + energías del CSV de Geant4
+  - Agregar slabs de tejido visualmente en el viewport 3D
+  - Colorear trayectorias por gradiente de energía (múltiples escalas)
+  - Click en trayectoria → inspección step a step con todas las unidades
+  - Galería de 55+ materiales con todos los parámetros físicos/biológicos
+  - Editor de materiales custom (serializable en JSON)
+  - Phantoms predefinidos (15+)
+  - Física: Bethe-Bloch + Sternheimer + Highland MCS + Vavilov straggling
+  - Curva de Bragg analítica (Bortfeld 1997)
+
+ARQUITECTURA DEL MÓDULO
+───────────────────────
+src/biosim/
+  core/
+    BioSimConfig.h           ← Configuración serializable completa
+    BioSimResult.h           ← Resultado por step, por track, por slab
+    BioSimRunner.h/.cpp      ← Orquestador (QThread-ready)
+    EnergyScaleSet.h         ← Todas las unidades por step
+    EnergyScaleConverter.h/.cpp ← Conversiones de unidades
+  physics/
+    StoppingPowerEngine.h/.cpp  ← Bethe-Bloch + Sternheimer + MCS
+    BraggPeakCalculator.h/.cpp  ← CSDA range, Bortfeld 1997
+    EnergyStraggling.h/.cpp     ← Landau / Vavilov / Bohr
+    ParticleLibrary.h/.cpp      ← 18 partículas catalogadas
+  materials/
+    BioMaterial.h            ← Struct rico (30+ parámetros)
+    BioMaterialLibrary.h/.cpp ← 55+ materiales ICRU/NIST
+    BioMaterialValidator.h/.cpp ← Validación de coherencia física
+  geometry/
+    BioSlab.h                ← Slab con posición 3D, forma, material
+    PhantomPreset.h          ← Stack de slabs con nombre/categoría
+    PhantomLibrary.h/.cpp    ← 15+ phantoms predefinidos
+  ui/qt/
+    BioSimWidget.h/.cpp      ← Tab principal
+    BioViewport3D.h/.cpp     ← Viewport 3D con gradiente y picking
+    TrajectoryInspectorPanel.h/.cpp ← Panel de inspección por click
+    SlabEditor3D.h/.cpp      ← Editor visual de slabs
+    MaterialEditorDialog.h/.cpp ← Galería + editor de materiales
+    PhantomPresetPanel.h/.cpp  ← Selector de phantoms
+    EnergyScaleBar.h/.cpp    ← Leyenda de escala de colores
+    EnergyColorMapper.h/.cpp ← Valor → QColor (8 paletas)
+
+INTEGRACIÓN CON MAINWINDOW (mínima invasión)
+────────────────────────────────────────────
+Solo 3 cambios en archivos existentes:
+  1. MainWindow.cpp: #include "biosim/ui/qt/BioSimWidget.h"
+  2. MainWindow.cpp: tabs_->addTab(bio_sim_widget, "Bio Simulator")
+  3. MainWindow.cpp: bio_sim_widget->setRunDirectory(current_run_dir_)
+  4. CMakeLists.txt: añadir fuentes biosim al target beamlab_ui
+
+FORMATO DE DATOS DE ENTRADA
+────────────────────────────
+CSV principal: outputs/<run>/tables/energy_step_profile.csv
+  Columnas: event_id, track_id, step_index, axial_m,
+            edep_MeV, edep_eV, kinE_MeV, dose_Gy,
+            x_m, y_m, z_m
+  Tamaño típico: ~1M líneas (72K en preview)
+
+CSV posición 3D: outputs/<run>/visualization/trajectories_preview.csv
+  Columnas: trajectory_index, sample_index, time_s,
+            x_m, y_m, z_m, edep_MeV, edep_eV, kinE_MeV,
+            momx_MeV, momy_MeV, momz_MeV, dose_Gy
+
+REGLAS DE NO-DISTORSIÓN DE DATOS
+──────────────────────────────────
+- edep_MeV original de Geant4 NUNCA se modifica en disco
+- Fuera de slabs: se preserva el valor Geant4 original íntegro
+- Dentro de slabs: se recalcula con Bethe-Bloch, guardado en simulated_edep_MeV
+- Conversiones de unidades: SIEMPRE desde edep_MeV primario (nunca en cadena)
+- CSV de salida: columnas original_* y simulated_* en paralelo
+- Cada export incluye hash SHA-256 del CSV de entrada
+
+FASES DE IMPLEMENTACIÓN
+────────────────────────
+F1: BioMaterial, BioMaterialLibrary, ParticleLibrary    ← COMPLETADO
+F2: StoppingPowerEngine, EnergyScaleConverter           ← COMPLETADO
+F3: BioSimConfig, BioSimResult, BioSimRunner + CSV loader ← COMPLETADO
+F4: BioViewport3D, EnergyColorMapper, EnergyScaleBar    ← COMPLETADO
+F5: TrajectoryInspectorPanel, SlabEditor3D, BioSimWidget ← COMPLETADO
+F6: MaterialEditorDialog, PhantomPresetPanel            ← COMPLETADO
+F7: Integración CMakeLists.txt + MainWindow             ← COMPLETADO
+F8: Build verificado — 0 errores, 0 warnings            ← COMPLETADO
+
+================================================================================
+CHANGELOG
+================================================================================
+
+[2026-05-10] INICIO DEL PROYECTO
+  - Plan de diseño completo acordado con el usuario
+  - Creado BIOSIM_MEMORY.txt (este archivo)
+  - Creada checklist de tareas en el sistema de tareas
+  - Iniciando Fase 1: BioMaterial + BioMaterialLibrary + ParticleLibrary
+
+[2026-05-10] MÓDULO COMPLETO — BUILD LIMPIO
+  - F1-F8 completados: 22 tareas en total
+  - 33 archivos nuevos creados en src/biosim/
+  - Integración: solo 3 líneas añadidas a archivos existentes
+  - build-root/beamlab_ui: compila sin errores ni warnings
+  - Correcciones realizadas durante build:
+    * BioStep fields: pos_x_m→x_m, pos_y_m→y_m, pos_z_m→z_m
+    * EnergyScaleSet fields: scales→energy (en BioViewport3D y InspectorPanel)
+    * BioTrack fields: particle_name→particle_type, total_edep_MeV→total_edep_MeV_original
+    * BioSlabStats: slab_index/slab_label→slab_id/material_name, n_tracks→tracks_crossing
+    * EnergyScaleSet fields: let_MeV_cm→LET_MeV_cm, rbe→RBE, bed_Gy→BED_Gy
+    * SlabEditor3D: emitChanged() no puede ser const (señales Qt)
+    * qobject_cast→static_cast para clases internas sin Q_OBJECT macro
+    * BioMaterialLibrary: addCustom/removeCustom confirma firmas correctas
+    * BioSimConfig: csv_path→energy_step_csv_path
+    * CMakeLists: añadido Qt6::Concurrent para QtConcurrent::run
+

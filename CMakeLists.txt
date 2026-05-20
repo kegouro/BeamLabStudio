@@ -64,11 +64,8 @@ add_library(beamlab_core STATIC
     src/analysis/surfaces/ContourResampler.cpp
     src/analysis/surfaces/SurfaceBuilder.cpp
     src/analysis/surfaces/LensDiskBuilder.cpp
-    # Simulation subsystem (BetheBloch kept for now, will migrate in step 4)
-    src/simulation/physics/BetheBlochEngine.cpp
-    src/simulation/physics/MuonTrackSimulator.cpp
-    # Scoring plane detection (algorithm, no Qt dependency)
-    src/simulation/scoring/ScoringPlaneDetector.cpp
+    # Scoring plane detection
+    src/biosim/core/ScoringPlaneDetector.cpp
     # Energy exporters
     src/io/exporters/EnergyProfileExporter.cpp
 )
@@ -139,8 +136,7 @@ if(BEAMLAB_ENABLE_QT_UI)
             COMMAND "${PYTHON3_EXECUTABLE}" "${MATH_DOCS_SCRIPT}"
             DEPENDS "${MATH_DOCS_SCRIPT}"
                     # Re-run whenever any physics/analysis source changes
-                    "${PROJECT_SOURCE_DIR}/src/simulation/physics/BetheBlochEngine.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/simulation/scoring/ScoringPlaneDetector.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/biosim/core/ScoringPlaneDetector.cpp"
                     "${PROJECT_SOURCE_DIR}/src/analysis/statistics/FrameStatisticsEngine.cpp"
                     "${PROJECT_SOURCE_DIR}/src/analysis/focus/FocusDetector.cpp"
                     "${PROJECT_SOURCE_DIR}/src/io/normalization/AxisFrameResolver.cpp"

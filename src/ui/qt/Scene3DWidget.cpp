@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -285,6 +286,176 @@ void Scene3DWidget::setLayerLineWidth(const int layer_index, const double width)
     update();
 }
 
+
+void Scene3DWidget::loadLayerEnergyCSV(const int layer_index, const QString& path)
+{
+    if (layer_index < 0 || layer_index >= static_cast<int>(layers_.size())) return;
+
+    auto& layer = layers_[static_cast<std::size_t>(layer_index)];
+    layer.vertex_energies.clear();
+    if (layer.vertices.empty()) return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    QTextStream stream(&file);
+
+    // OBJ vertices and CSV data rows are written in the same order by the pipeline,
+    // so vertex i maps directly to CSV row i — no coordinate lookup needed.
+    //
+    // trajectories_preview.csv columns:
+    //   0=trajectory_index  1=sample_index  2=time_s
+    //   3=x_m  4=y_m  5=z_m  6=edep_MeV  7=edep_eV  8=kinE_MeV  ...
+    std::vector<double> raw_energies;
+    raw_energies.reserve(layer.vertices.size());
+
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine().trimmed();
+        if (line.isEmpty() || line.startsWith('#') || line.startsWith("trajectory")) continue;
+        const QStringList parts = line.split(',');
+        if (parts.size() < 9) continue;
+        bool ok{};
+        const double e = parts[8].toDouble(&ok);
+        if (!ok) continue;
+        raw_energies.push_back(e);
+    }
+
+    if (raw_energies.empty()) return;
+
+    const std::size_t nv = layer.vertices.size();
+    const std::size_t to_assign = std::min(nv, raw_energies.size());
+
+    // Store absolute kinE values per vertex; the renderer uses energy_min/max
+    // to map [min,max] -> [blue,red].  Vertices without a CSV row default to
+    // the low end of the scale (blue) so unmatched verts stay visually neutral.
+    double overall_min = std::numeric_limits<double>::infinity();
+    double overall_max = -std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i < to_assign; ++i) {
+        overall_min = std::min(overall_min, raw_energies[i]);
+        overall_max = std::max(overall_max, raw_energies[i]);
+    }
+
+    layer.vertex_energies.assign(nv, overall_min);
+    for (std::size_t i = 0; i < to_assign; ++i) {
+        layer.vertex_energies[i] = raw_energies[i];
+    }
+
+    // Use P1–P99 percentiles for the colour range so a few outlier samples
+    // (e.g. a single particle that fully stops) do not compress the scale
+    // and leave every track looking uniformly red.
+    double p_lo = overall_min;
+    double p_hi = overall_max;
+    if (to_assign >= 100) {
+        std::vector<double> sorted(raw_energies.begin(),
+                                   raw_energies.begin() + static_cast<std::ptrdiff_t>(to_assign));
+        const std::size_t lo_idx = static_cast<std::size_t>(0.01 * static_cast<double>(sorted.size()));
+        const std::size_t hi_idx = std::min(sorted.size() - 1,
+                                            static_cast<std::size_t>(0.99 * static_cast<double>(sorted.size())));
+        std::nth_element(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(lo_idx), sorted.end());
+        p_lo = sorted[lo_idx];
+        std::nth_element(sorted.begin() + static_cast<std::ptrdiff_t>(lo_idx) + 1,
+                         sorted.begin() + static_cast<std::ptrdiff_t>(hi_idx), sorted.end());
+        p_hi = sorted[hi_idx];
+    }
+
+    if (!(p_hi > p_lo)) {
+        // Degenerate range: keep the bar meaningful by widening to ±0.5 MeV.
+        p_hi = p_lo + 0.5;
+        p_lo -= 0.5;
+    }
+
+    layer.energy_min = p_lo;
+    layer.energy_max = p_hi;
+
+    update();
+}
+
+void Scene3DWidget::setLayerEnergyGradient(const int layer_index, const bool enabled)
+{
+    if (layer_index < 0 || layer_index >= static_cast<int>(layers_.size())) return;
+    layers_[static_cast<std::size_t>(layer_index)].energy_gradient = enabled;
+    update();
+}
+
+// static
+QColor Scene3DWidget::energyToColor(const double t)
+{
+    struct Stop { double pos; int r, g, b; };
+    constexpr std::array<Stop, 5> stops{{
+        {0.00,   0,   0, 230},
+        {0.25,   0, 200, 255},
+        {0.50,   0, 230,  80},
+        {0.75, 255, 210,   0},
+        {1.00, 255,  40,   0}
+    }};
+    const double tc = std::clamp(t, 0.0, 1.0);
+    int seg = 0;
+    for (; seg < 3; ++seg) {
+        if (tc <= stops[static_cast<std::size_t>(seg + 1)].pos) break;
+    }
+    const auto& s0 = stops[static_cast<std::size_t>(seg)];
+    const auto& s1 = stops[static_cast<std::size_t>(seg + 1)];
+    const double f = (tc - s0.pos) / (s1.pos - s0.pos);
+    return QColor(
+        static_cast<int>(s0.r + f * (s1.r - s0.r)),
+        static_cast<int>(s0.g + f * (s1.g - s0.g)),
+        static_cast<int>(s0.b + f * (s1.b - s0.b))
+    );
+}
+
+void Scene3DWidget::drawEnergyScaleBar(QPainter& painter, const Layer& layer,
+                                       const double top_reserved,
+                                       const double available_h) const
+{
+    if (layer.vertex_energies.empty()) return;
+
+    const int bar_w = 14;
+    const int bar_h = static_cast<int>(available_h) - 40;
+    const int bar_x = width() - bar_w - 56;
+    const int bar_y = static_cast<int>(top_reserved) + 20;
+    if (bar_h <= 0) return;
+
+    painter.save();
+    for (int y = 0; y < bar_h; ++y) {
+        const double t = 1.0 - static_cast<double>(y) / static_cast<double>(bar_h);
+        painter.setPen(energyToColor(t));
+        painter.drawLine(bar_x, bar_y + y, bar_x + bar_w - 1, bar_y + y);
+    }
+    painter.setPen(QColor(150, 165, 190));
+    painter.drawRect(bar_x, bar_y, bar_w - 1, bar_h - 1);
+
+    QFont f = painter.font();
+    f.setPointSizeF(7.0);
+    painter.setFont(f);
+
+    // Pick tick precision so adjacent ticks remain distinguishable even when
+    // the range is narrow relative to the absolute values (e.g. 2899–3000 MeV).
+    const double e_span = layer.energy_max - layer.energy_min;
+    const double tick_step = e_span / 4.0;
+    int decimals = 0;
+    if (tick_step > 0.0) {
+        const double mag = std::log10(tick_step);
+        decimals = std::clamp(1 - static_cast<int>(std::floor(mag)), 0, 6);
+    }
+
+    for (int ti = 0; ti <= 4; ++ti) {
+        const double frac = static_cast<double>(ti) / 4.0;
+        const int y = bar_y + static_cast<int>((1.0 - frac) * static_cast<double>(bar_h));
+        const double e = layer.energy_min + frac * e_span;
+        painter.setPen(QColor(150, 165, 190));
+        painter.drawLine(bar_x - 4, y, bar_x, y);
+        painter.setPen(QColor(210, 220, 235));
+        painter.drawText(bar_x - 52, y - 9, 46, 18,
+                         Qt::AlignRight | Qt::AlignVCenter,
+                         QString::number(e, 'f', decimals));
+    }
+    painter.translate(bar_x + bar_w + 14, bar_y + bar_h / 2.0);
+    painter.rotate(90);
+    painter.setPen(QColor(160, 175, 200));
+    painter.drawText(QRect(-36, -9, 72, 18), Qt::AlignCenter,
+                     QStringLiteral("kinE [MeV]"));
+    painter.restore();
+}
 
 void Scene3DWidget::setTrajectoryParameter(const double lambda)
 {
@@ -1079,6 +1250,12 @@ void Scene3DWidget::paintEvent(QPaintEvent*)
             stride = std::max(1, total_polylines / layer.max_polylines);
         }
 
+        const bool use_gradient =
+            layer.energy_gradient &&
+            layer.vertex_energies.size() == layer.vertices.size();
+        const double e_span = layer.energy_max - layer.energy_min;
+        const int nv = static_cast<int>(layer.vertices.size());
+
         int drawn = 0;
 
         for (int i = 0; i < total_polylines; i += stride) {
@@ -1100,14 +1277,24 @@ void Scene3DWidget::paintEvent(QPaintEvent*)
                                            static_cast<double>(complete_segments);
 
             for (std::size_t j = 1; j <= complete_segments; ++j) {
-                painter.drawLine(
-                    toScreen(layer_index, polyline.indices[j - 1]),
-                    toScreen(layer_index, polyline.indices[j])
-                );
+                const int a = polyline.indices[j - 1];
+                const int b = polyline.indices[j];
+                if (use_gradient && a >= 0 && b >= 0 && a < nv && b < nv) {
+                    const double ea = layer.vertex_energies[static_cast<std::size_t>(a)];
+                    const double eb = layer.vertex_energies[static_cast<std::size_t>(b)];
+                    const double t = 0.5 * (ea + eb - 2.0 * layer.energy_min) / e_span;
+                    QPen gpen(energyToColor(t));
+                    gpen.setWidthF(layer.line_width);
+                    painter.setPen(gpen);
+                } else if (use_gradient) {
+                    painter.setPen(pen); // fallback
+                }
+                painter.drawLine(toScreen(layer_index, a), toScreen(layer_index, b));
             }
 
             if (complete_segments + 1 < polyline.indices.size() &&
                 partial_segment > 1.0e-9) {
+                if (use_gradient) painter.setPen(pen); // reset for partial
                 const QPointF a =
                     toScreen(layer_index, polyline.indices[complete_segments]);
                 const QPointF b =
@@ -1152,6 +1339,14 @@ void Scene3DWidget::paintEvent(QPaintEvent*)
             center_y,
             content_bounds
         );
+    }
+
+    // Draw energy scale bar for the first visible layer with gradient enabled.
+    for (const auto& layer : layers_) {
+        if (layer.visible && layer.energy_gradient && !layer.vertex_energies.empty()) {
+            drawEnergyScaleBar(painter, layer, top_reserved, available_h);
+            break;
+        }
     }
 
     painter.setPen(QPen(QColor(180, 190, 210)));

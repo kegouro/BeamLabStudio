@@ -6,13 +6,16 @@
 #include <QVector>
 
 class QGraphicsScene;
-class QGraphicsView;
 class QGridLayout;
 class QLabel;
 class QPlainTextEdit;
 class QPushButton;
 class QResizeEvent;
 class QSpinBox;
+
+namespace beamlab::ui {
+class InteractiveGraphicsView;
+}
 
 namespace beamlab::ui {
 
@@ -89,10 +92,10 @@ private:
     void refreshBeamRadiusInspector();
     void exportBeamRadiusCsvFromDialog();
 
-    QGraphicsView* focus_view_{nullptr};
-    QGraphicsView* envelope_area_view_{nullptr};
-    QGraphicsView* point_count_view_{nullptr};
-    QGraphicsView* radial_histogram_view_{nullptr};
+    InteractiveGraphicsView* focus_view_{nullptr};
+    InteractiveGraphicsView* envelope_area_view_{nullptr};
+    InteractiveGraphicsView* point_count_view_{nullptr};
+    InteractiveGraphicsView* radial_histogram_view_{nullptr};
 
     QGraphicsScene* focus_scene_{nullptr};
     QGraphicsScene* envelope_area_scene_{nullptr};
