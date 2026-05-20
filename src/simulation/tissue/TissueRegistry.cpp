@@ -11,7 +11,22 @@ namespace beamlab::simulation {
 
 TissueMaterial TissueRegistry::water()
 {
-    return {"Water", "H2O", 1.000, 7.22, 12.01, 75.0, 36.08};
+    TissueMaterial m;
+    m.name = "Water";
+    m.symbol = "H2O";
+    m.density_g_cm3 = 1.000;
+    m.Z_eff = 7.22;
+    m.A_eff = 12.01;
+    m.I_eV = 75.0;
+    m.radiation_length_cm = 36.08;
+    m.has_sternheimer = true;
+    m.sternheimer_a = 0.09116;
+    m.sternheimer_k = 3.4773;
+    m.sternheimer_x0 = 0.2400;
+    m.sternheimer_x1 = 2.8004;
+    m.sternheimer_C_delta = -3.5017;
+    m.sternheimer_delta0 = 0.0;
+    return m;
 }
 
 TissueMaterial TissueRegistry::muscle()

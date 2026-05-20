@@ -40,6 +40,29 @@ constexpr double k_MeV_cm2_g = 0.307075; // Bethe-Bloch K/A constant in MeV·cm�
 constexpr double m_e_MeV = 0.51099895;     // electron rest mass in MeV
 constexpr double MeV_to_J = 1.602176634e-13; // 1 MeV = 1.602e-13 J
 
+// Sternheimer density-effect correction δ(x) where x = log10(β·γ).
+// Returns 0 if mat.has_sternheimer is false.
+double sternheimerDelta(const double log10_bg, const TissueMaterial& mat)
+{
+    if (!mat.has_sternheimer) return 0.0;
+
+    const double x  = log10_bg;
+    const double x0 = mat.sternheimer_x0;
+    const double x1 = mat.sternheimer_x1;
+    const double a  = mat.sternheimer_a;
+    const double k  = mat.sternheimer_k;
+    const double C  = mat.sternheimer_C_delta;
+    const double d0 = mat.sternheimer_delta0;
+
+    if (x < x0) {
+        return d0 * std::pow(10.0, 2.0 * (x - x0));
+    }
+    if (x < x1) {
+        return 4.6052 * x + C + a * std::pow(x1 - x, k);
+    }
+    return 4.6052 * x + C;
+}
+
 // Bethe-Bloch mean stopping power -dE/dx in MeV/(g/cm²) (mass stopping power).
 // PDG 2022 eq. 34.5, valid in the range 0.1 < β·γ < several hundred.
 double betheBlochMass(const double kinE_MeV,
@@ -47,7 +70,8 @@ double betheBlochMass(const double kinE_MeV,
                       const double z,   // particle charge in |e|
                       const double Z_eff,
                       const double A_eff,
-                      const double I_eV)
+                      const double I_eV,
+                      const TissueMaterial& material)
 {
     const double I_MeV = I_eV * 1.0e-6;
 
@@ -69,7 +93,6 @@ double betheBlochMass(const double kinE_MeV,
                              (m_e_MeV / M) * (m_e_MeV / M);
     const double Wmax_MeV = num_Wmax / den_Wmax;
 
-    // Bethe-Bloch core (no density or shell corrections for simplicity)
     const double log_arg = 2.0 * m_e_MeV * bg * bg * Wmax_MeV / (I_MeV * I_MeV);
 
     if (log_arg <= 0.0) {
@@ -79,8 +102,10 @@ double betheBlochMass(const double kinE_MeV,
     const double z2 = z * z;
     const double ZA = Z_eff / A_eff;
 
+    const double delta = sternheimerDelta(std::log10(bg), material);
+
     const double stopping = k_MeV_cm2_g * z2 * ZA / beta2 *
-                            (0.5 * std::log(log_arg) - beta2);
+                            (0.5 * std::log(log_arg) - beta2 - delta / 2.0);
 
     return std::max(0.0, stopping); // MeV·cm²/g
 }
@@ -97,7 +122,8 @@ double BetheBlochEngine::dEdx_MeV_cm(const double kinE_MeV,
                                           std::abs(charge),
                                           material.Z_eff,
                                           material.A_eff,
-                                          material.I_eV);
+                                          material.I_eV,
+                                          material);
     // Convert mass stopping power (MeV·cm²/g) → linear (MeV/cm)
     return mass_sp * material.density_g_cm3;
 }
