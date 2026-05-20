@@ -55,7 +55,8 @@ double betheBlochMass(const double kinE_MeV,
     const double beta2 = 1.0 - 1.0 / (gamma * gamma);
 
     if (beta2 <= 0.0 || beta2 >= 1.0) {
-        return 0.0;
+        // Stopped particle: return large value, caller clamps to remaining kinE
+        return 1.0e6; // MeV/(g/cm²), will be clamped by energyLoss_MeV()
     }
 
     const double beta  = std::sqrt(beta2);
