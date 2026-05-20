@@ -33,8 +33,6 @@ add_compile_options(
     -Wsign-conversion
 )
 
-include_directories(${PROJECT_SOURCE_DIR}/src)
-
 add_library(beamlab_core STATIC
     src/app/ApplicationContext.cpp
     src/app/ApplicationBootstrap.cpp
@@ -209,7 +207,7 @@ if(BEAMLAB_ENABLE_QT_UI)
     )
 
     target_include_directories(beamlab_ui PRIVATE
-        src
+        ${PROJECT_SOURCE_DIR}/src
     )
 
     target_link_libraries(beamlab_ui PRIVATE
