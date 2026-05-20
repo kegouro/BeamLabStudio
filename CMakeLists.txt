@@ -73,6 +73,7 @@ add_library(beamlab_core STATIC
     src/io/exporters/VisualizationDataExporter.cpp
     src/io/exporters/VisualizationManifestExporter.cpp
     src/analysis/statistics/FrameStatisticsEngine.cpp
+    src/analysis/statistics/BatchStatisticsEngine.cpp
     src/analysis/quality/AnalysisQualityChecker.cpp
     src/analysis/focus/FocusCurveBuilder.cpp
     src/analysis/focus/FocusDetector.cpp
