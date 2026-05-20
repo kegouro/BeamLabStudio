@@ -64,8 +64,7 @@ add_library(beamlab_core STATIC
     src/analysis/surfaces/ContourResampler.cpp
     src/analysis/surfaces/SurfaceBuilder.cpp
     src/analysis/surfaces/LensDiskBuilder.cpp
-    # Simulation subsystem
-    src/simulation/tissue/TissueRegistry.cpp
+    # Simulation subsystem (BetheBloch kept for now, will migrate in step 4)
     src/simulation/physics/BetheBlochEngine.cpp
     src/simulation/physics/MuonTrackSimulator.cpp
     src/simulation/scoring/ScoringPlaneDetector.cpp
