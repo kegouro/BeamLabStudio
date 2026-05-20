@@ -23,6 +23,8 @@
 #include "io/importers/Geant4CsvImporter.h"
 
 #include "core/foundation/NumericGuards.h"
+#include "core/storage/ISampleStorage.h"
+#include "core/pipeline/ProgressTracker.h"
 #include "data/ids/SampleId.h"
 #include "data/ids/TrajectoryId.h"
 #include "data/model/Trajectory.h"
@@ -530,6 +532,109 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
     result.success = true;
     result.dataset = std::move(dataset);
     return result;
+}
+
+uint64_t Geant4CsvImporter::importStreaming(
+    const std::string& file_path,
+    beamlab::core::ISampleStorage& storage,
+    beamlab::core::ProgressTracker* progress) const
+{
+    std::ifstream input(file_path);
+    if (!input) return 0;
+
+    // Get file size for progress
+    input.seekg(0, std::ios::end);
+    auto fileSize = static_cast<int64_t>(input.tellg());
+    input.seekg(0, std::ios::beg);
+
+    std::string line;
+    std::vector<std::string> header;
+    Geant4Columns columns{};
+
+    // Find header
+    while (std::getline(input, line)) {
+        if (looksLikeGeant4Header(line)) {
+            auto delim = DelimiterDetector::detect(line);
+            header = splitLine(line, delim);
+            columns = detectColumns(header);
+            break;
+        }
+    }
+    if (!columns.valid) return 0;
+
+    std::size_t line_number = 1;
+    uint64_t sampleCount = 0;
+    std::string currentTrajId;
+
+    while (std::getline(input, line)) {
+        ++line_number;
+        if (line.empty() || line[0] == '#') continue;
+
+        const auto delim = DelimiterDetector::detect(line);
+        const auto tokens = splitLine(line, delim);
+        if (tokens.size() < 15) continue;
+
+        const auto x_cm = parseDouble(tokens[0]);
+        const auto y_cm = parseDouble(tokens[1]);
+        const auto z_cm = parseDouble(tokens[2]);
+        const auto edep = parseDouble(tokens[3]);
+        const auto kine = parseDouble(tokens[4]);
+        const auto time_ns = parseDouble(tokens[8]);
+        const auto track_id = parseInteger(tokens[9]);
+        const auto event_id = parseInteger(tokens[11]);
+        const auto pdg_val = parseInteger(tokens[12]);
+
+        if (!x_cm || !y_cm || !z_cm || !time_ns || !track_id || !event_id || !pdg_val)
+            continue;
+
+        std::string trajId = std::to_string(*event_id) + "_" + std::to_string(*track_id);
+        if (trajId != currentTrajId) {
+            if (!currentTrajId.empty()) storage.endTrajectory();
+            storage.beginTrajectory(trajId);
+            currentTrajId = trajId;
+        }
+
+        beamlab::data::TrajectorySample s{};
+        s.position_m = {*x_cm * 0.01, *y_cm * 0.01, *z_cm * 0.01};
+        s.time_s = *time_ns * 1.0e-9;
+        s.edep_MeV = edep.value_or(0.0);
+        s.edep_eV = s.edep_MeV * 1.0e6;
+        s.kinE_MeV = kine.value_or(0.0);
+        s.momentum_MeV = {
+            tokens.size() > 5 ? parseDouble(tokens[5]).value_or(0.0) : 0.0,
+            tokens.size() > 6 ? parseDouble(tokens[6]).value_or(0.0) : 0.0,
+            tokens.size() > 7 ? parseDouble(tokens[7]).value_or(0.0) : 0.0
+        };
+        storage.addSample(s);
+        ++sampleCount;
+
+        if (sampleCount % 10000 == 0) {
+            storage.flush();
+            if (progress) {
+                auto pos = static_cast<int64_t>(input.tellg());
+                if (pos < 0) pos = static_cast<int64_t>(sampleCount) * 200;
+                beamlab::core::AnalysisProgress p;
+                p.fraction = fileSize > 0 ? static_cast<double>(pos) / static_cast<double>(fileSize) : 0.0;
+                p.stage = "importing";
+                p.bytesProcessed = pos;
+                p.totalBytes = fileSize;
+                progress->onProgress(p);
+                if (progress->cancelled()) break;
+            }
+        }
+    }
+    if (!currentTrajId.empty()) storage.endTrajectory();
+    storage.flush();
+
+    if (progress) {
+        beamlab::core::AnalysisProgress p;
+        p.fraction = 1.0;
+        p.stage = "importing";
+        p.bytesProcessed = fileSize;
+        p.totalBytes = fileSize;
+        progress->onProgress(p);
+    }
+    return sampleCount;
 }
 
 } // namespace beamlab::io
