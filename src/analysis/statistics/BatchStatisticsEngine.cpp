@@ -118,25 +118,7 @@ std::vector<FrameStatistics> BatchStatisticsEngine::compute(
     uint64_t total = storage.totalSampleCount();
     if (total < 3) return {};
 
-    double sMin = std::numeric_limits<double>::infinity();
-    double sMax = -std::numeric_limits<double>::infinity();
-
-    constexpr uint64_t kScanBatch = 50000;
-    uint64_t offset = 0;
-    while (offset < total) {
-        auto batch = storage.getBatch(offset, kScanBatch);
-        for (const auto& sample : batch) {
-            const auto relative = beamlab::core::subtract(sample.position_m, axisFrame.origin);
-            const double s = beamlab::core::dot(relative, axisFrame.longitudinal);
-            if (std::isfinite(s)) {
-                sMin = std::min(sMin, s);
-                sMax = std::max(sMax, s);
-            }
-        }
-        offset += batch.size();
-        if (batch.empty()) break;
-    }
-
+    auto [sMin, sMax] = storage.getZRange();
     if (!(sMax > sMin)) return {};
 
     auto binCount = static_cast<std::size_t>(parameters.axial_bin_count);

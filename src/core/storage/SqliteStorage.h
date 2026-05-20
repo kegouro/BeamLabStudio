@@ -29,6 +29,7 @@ public:
     void endTrajectory() override;
     void flush() override;
     void finalizeStorage() override { finalizeIndices(); }
+    std::pair<double, double> getZRange() const override;
 
     // Create indices after bulk import. Call once after all data is loaded.
     // This avoids index maintenance overhead during insertion (5-10x faster).

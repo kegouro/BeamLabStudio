@@ -50,11 +50,24 @@ void SqliteStorage::ensureTable()
 
 void SqliteStorage::finalizeIndices()
 {
-    exec("PRAGMA journal_mode=WAL");         // Switch to WAL for concurrent reads
+    exec("PRAGMA journal_mode=WAL");
     exec("PRAGMA synchronous=NORMAL");
     exec("PRAGMA locking_mode=NORMAL");
     exec("CREATE INDEX IF NOT EXISTS idx_traj ON samples(trajectory_id, step_index)");
     exec("CREATE INDEX IF NOT EXISTS idx_axial ON samples(z_m)");
+}
+
+std::pair<double, double> SqliteStorage::getZRange() const
+{
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(db_, "SELECT MIN(z_m), MAX(z_m) FROM samples", -1, &stmt, nullptr);
+    double zMin = 0.0, zMax = 0.0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        zMin = sqlite3_column_double(stmt, 0);
+        zMax = sqlite3_column_double(stmt, 1);
+    }
+    sqlite3_finalize(stmt);
+    return {zMin, zMax};
 }
 
 void SqliteStorage::exec(const char* sql)

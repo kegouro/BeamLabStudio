@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace beamlab::data {
@@ -37,6 +38,9 @@ public:
 
     virtual std::vector<beamlab::data::TrajectorySample> getAxialRange(
         double zMin, double zMax) const = 0;
+
+    // Fast min/max from indexed column. Returns {min, max} or empty if no data.
+    virtual std::pair<double, double> getZRange() const { return {0.0, 0.0}; }
 
     // Called after bulk import to finalize storage (create indices, optimize).
     // No-op for in-memory backends.

@@ -54,6 +54,7 @@
 #include <memory>
 #include <numbers>
 #include <stdexcept>
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -359,20 +360,35 @@ int ApplicationBootstrap::run(int argc, char** argv)
         std::cout << "Output directory: " << manifest.output_root << '\n';
 
         if (options.use_streaming) {
-            // ── Streaming path: importStreaming() → SqliteStorage → BatchStatisticsEngine
+            using clock = std::chrono::steady_clock;
             std::cout << "Using streaming import (SqliteStorage, O(1) RAM)\n";
             auto storage = beamlab::core::ISampleStorage::create(100ULL*1024*1024);
+
+            auto t0 = clock::now();
             beamlab::io::Geant4CsvImporter importer;
             uint64_t imported = importer.importStreaming(options.input_file, *storage);
+            auto t1 = clock::now();
             storage->finalizeStorage();
+            auto t2 = clock::now();
+
+            auto importSec = std::chrono::duration<double>(t1-t0).count();
+            auto indexSec = std::chrono::duration<double>(t2-t1).count();
             std::cout << "Imported " << imported << " samples, "
                       << storage->trajectoryCount() << " trajectories\n";
+            std::cout << "[perf] Import: " << importSec << "s  "
+                      << "Indices: " << indexSec << "s  "
+                      << "Rate: " << static_cast<int>(imported/importSec) << " samples/s\n";
 
             if (imported > 0) {
                 beamlab::data::AxisFrame ax = {{0,0,0},{0,0,1},{1,0,0},{0,1,0}};
                 beamlab::analysis::BatchStatisticsEngine engine;
+                auto t3 = clock::now();
                 auto stats = engine.compute(*storage, ax);
+                auto t4 = clock::now();
+                auto statsSec = std::chrono::duration<double>(t4-t3).count();
                 std::cout << "Statistics: " << stats.size() << " axial frames\n";
+                std::cout << "[perf] Stats: " << statsSec << "s  "
+                          << "Total: " << std::chrono::duration<double>(t4-t0).count() << "s\n";
             }
             return 0;
         }
