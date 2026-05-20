@@ -34,3 +34,5 @@ __pycache__/
 # OS
 .Thumbs.db
 *.bak*
+.aider*
+push.txt
