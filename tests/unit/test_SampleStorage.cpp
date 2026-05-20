@@ -1,5 +1,6 @@
 #include "core/storage/ISampleStorage.h"
 #include "core/storage/InMemoryStorage.h"
+#include "core/storage/SqliteStorage.h"
 
 #include "data/model/TrajectorySample.h"
 
@@ -28,9 +29,12 @@ protected:
 };
 
 static auto makeInMemory = []() { return std::make_unique<InMemoryStorage>(); };
+static auto makeSqlite = []() { return std::make_unique<SqliteStorage>(":memory:"); };
 
 INSTANTIATE_TEST_SUITE_P(InMemory, StorageTest,
     ::testing::Values(makeInMemory));
+INSTANTIATE_TEST_SUITE_P(Sqlite, StorageTest,
+    ::testing::Values(makeSqlite));
 
 TEST_P(StorageTest, EmptyStorage)
 {

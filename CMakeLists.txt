@@ -11,11 +11,16 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG v3.11.3
 )
+FetchContent_Declare(
+    sqlite3
+    GIT_REPOSITORY https://github.com/azadkuh/sqlite-amalgamation.git
+    GIT_TAG 035e7b009d1264ad013f90e09fb030f0275c5ba5
+)
 
 project(BeamLabStudio
     VERSION 0.1.0
     DESCRIPTION "Modular scientific platform for beam, trajectory and geometry analysis"
-    LANGUAGES CXX
+    LANGUAGES CXX C
 )
 
 set(CMAKE_CXX_STANDARD 20)
@@ -45,6 +50,8 @@ add_library(beamlab_core STATIC
     src/app/CommandLineOptions.cpp
     src/core/foundation/NumericGuards.cpp
     src/core/config/ConfigLoader.cpp
+    src/core/storage/InMemoryStorage.cpp
+    src/core/storage/SqliteStorage.cpp
     src/core/storage/InMemoryStorage.cpp
     src/io/detect/FileProbe.cpp
     src/io/detect/ImportRouter.cpp
@@ -85,6 +92,18 @@ add_library(beamlab_core STATIC
 )
 
 target_include_directories(beamlab_core PUBLIC ${PROJECT_SOURCE_DIR}/src)
+
+FetchContent_MakeAvailable(nlohmann_json)
+
+FetchContent_GetProperties(sqlite3)
+if(NOT sqlite3_POPULATED)
+    FetchContent_Populate(sqlite3)
+    add_library(sqlite3 STATIC ${sqlite3_SOURCE_DIR}/sqlite3.c)
+    target_include_directories(sqlite3 PUBLIC ${sqlite3_SOURCE_DIR})
+    target_compile_definitions(sqlite3 PRIVATE SQLITE_ENABLE_FTS5 SQLITE_THREADSAFE=1)
+endif()
+
+target_link_libraries(beamlab_core PUBLIC nlohmann_json::nlohmann_json sqlite3)
 FetchContent_MakeAvailable(nlohmann_json)
 
 target_link_libraries(beamlab_core PUBLIC nlohmann_json::nlohmann_json)

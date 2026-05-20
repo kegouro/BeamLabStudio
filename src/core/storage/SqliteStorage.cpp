@@ -29,7 +29,7 @@ void SqliteStorage::ensureTable()
 {
     exec("CREATE TABLE IF NOT EXISTS samples ("
          " sample_id INTEGER PRIMARY KEY AUTOINCREMENT,"
-         " trajectory_id INTEGER NOT NULL,"
+         " trajectory_id TEXT NOT NULL,"
          " step_index INTEGER NOT NULL,"
          " x_m REAL NOT NULL,"
          " y_m REAL NOT NULL,"
@@ -71,10 +71,10 @@ void SqliteStorage::addSample(const beamlab::data::TrajectorySample& sample)
         sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
     }
 
-    const int64_t trajId = std::stoll(currentTrajectoryId_);
+    const char* trajId = currentTrajectoryId_.c_str();
     const int64_t stepIdx = static_cast<int64_t>(pendingCount_);
 
-    sqlite3_bind_int64(stmt, 1, trajId);
+    sqlite3_bind_text(stmt, 1, trajId, -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, stepIdx);
     sqlite3_bind_double(stmt, 3, sample.position_m.x);
     sqlite3_bind_double(stmt, 4, sample.position_m.y);
@@ -136,7 +136,8 @@ std::vector<std::string> SqliteStorage::trajectoryIds() const
     sqlite3_prepare_v2(db_, "SELECT DISTINCT trajectory_id FROM samples ORDER BY trajectory_id",
                        -1, &stmt, nullptr);
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        ids.push_back(std::to_string(sqlite3_column_int64(stmt, 0)));
+        ids.push_back(std::string(
+            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))));
     }
     sqlite3_finalize(stmt);
     return ids;
@@ -168,7 +169,7 @@ std::vector<beamlab::data::TrajectorySample> SqliteStorage::getSamplesByTrajecto
         "SELECT x_m,y_m,z_m,edep_MeV,kinE_MeV,momx_MeV,momy_MeV,momz_MeV,time_s,dose_Gy "
         "FROM samples WHERE trajectory_id=? ORDER BY step_index",
         -1, &stmt, nullptr);
-    sqlite3_bind_int64(stmt, 1, std::stoll(trajectoryId));
+    sqlite3_bind_text(stmt, 1, trajectoryId.c_str(), -1, SQLITE_TRANSIENT);
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         result.push_back(rowToSample(stmt));
     }
