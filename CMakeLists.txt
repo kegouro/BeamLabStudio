@@ -60,6 +60,7 @@ add_library(beamlab_core STATIC
     src/analysis/slice/SliceExtractor.cpp
     src/analysis/envelope/ConvexHullEnvelopeExtractor.cpp
     src/analysis/envelope/AngularEnvelopeExtractor.cpp
+    src/analysis/envelope/FullEnvelopePreviewBuilder.cpp
     src/analysis/surfaces/ContourResampler.cpp
     src/analysis/surfaces/SurfaceBuilder.cpp
     src/analysis/surfaces/LensDiskBuilder.cpp
