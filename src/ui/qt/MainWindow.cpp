@@ -3129,13 +3129,12 @@ void beamlab::ui::MainWindow::openDataFileAndRunWithPath(const QString& input_pa
         root_dir.filePath("outputs/ui_run_" + safe_base + "_" + timestamp);
 
     const QString runner =
-        root_dir.filePath(
+        QCoreApplication::applicationDirPath()
 #ifdef Q_OS_WIN
-        "scripts/run_beamlab_full.cmd"
+        + "/../scripts/run_beamlab_full.cmd";
 #else
-        "scripts/run_beamlab_full.sh"
+        + "/../scripts/run_beamlab_full.sh";
 #endif
-    );
 
     if (!QFileInfo::exists(runner)) {
         QMessageBox::critical(
@@ -3146,10 +3145,12 @@ void beamlab::ui::MainWindow::openDataFileAndRunWithPath(const QString& input_pa
         return;
     }
 
-    const QString engine_path = root_dir.filePath("build/beamlab");
+    const QString engine_path =
+        QCoreApplication::applicationDirPath() + "/beamlab";
+    const QFileInfo engine_info(engine_path);
 
     QStringList args;
-    args << engine_path;
+    args << engine_info.absoluteFilePath();
     args << input_path;
     args << output_dir;
     args += defaultAnalysisArguments(input_info);
