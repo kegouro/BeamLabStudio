@@ -57,8 +57,19 @@ struct Geant4Columns {
     std::size_t momz_MeV{7};
     std::size_t time_ns{8};
     std::size_t trackID{9};
-    std::size_t eventID{10};
+    std::size_t parentID{10};
+    std::size_t eventID{11};
+    std::size_t pdg{12};
+    std::size_t particleName{13};
+    std::size_t source_file{14};
     bool valid{false};
+};
+
+constexpr std::array<const char*, 15> kExpectedHeader = {
+    "x_cm", "y_cm", "z_cm", "edep_MeV", "kinE_MeV",
+    "momx_MeV", "momy_MeV", "momz_MeV", "time_ns",
+    "trackID", "parentID", "eventID", "pdg",
+    "particleName", "source_file"
 };
 
 std::string trim(std::string text)
@@ -129,50 +140,17 @@ Geant4Columns detectColumns(const std::vector<std::string>& header)
 {
     Geant4Columns columns{};
 
-    std::unordered_map<std::string, std::size_t> index_by_name{};
-    for (std::size_t i = 0; i < header.size(); ++i) {
-        index_by_name[lower(trim(header[i]))] = i;
-    }
-
-    const auto lookup = [&](const std::string& name) -> std::optional<std::size_t> {
-        const auto it = index_by_name.find(name);
-        if (it == index_by_name.end()) {
-            return std::nullopt;
-        }
-
-        return it->second;
-    };
-
-    const auto x = lookup("x_cm");
-    const auto y = lookup("y_cm");
-    const auto z = lookup("z_cm");
-    const auto edep = lookup("edep_mev");
-    const auto kine = lookup("kine_mev");
-    const auto momx = lookup("momx_mev");
-    const auto momy = lookup("momy_mev");
-    const auto momz = lookup("momz_mev");
-    const auto time = lookup("time_ns");
-    const auto track = lookup("trackid");
-    const auto event = lookup("eventid");
-
-    if (!x || !y || !z || !time || !track || !event) {
-        columns.valid = false;
+    if (header.size() < 15) {
         return columns;
     }
 
-    columns.x_cm = *x;
-    columns.y_cm = *y;
-    columns.z_cm = *z;
-    columns.edep_MeV = edep.value_or(3);
-    columns.kinE_MeV = kine.value_or(4);
-    columns.momx_MeV = momx.value_or(5);
-    columns.momy_MeV = momy.value_or(6);
-    columns.momz_MeV = momz.value_or(7);
-    columns.time_ns = *time;
-    columns.trackID = *track;
-    columns.eventID = *event;
-    columns.valid = true;
+    for (std::size_t i = 0; i < 15; ++i) {
+        if (lower(trim(header[i])) != lower(kExpectedHeader[i])) {
+            return columns;
+        }
+    }
 
+    columns.valid = true;
     return columns;
 }
 
@@ -319,7 +297,7 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         result.error = beamlab::core::Error{
             .code = beamlab::core::StatusCode::ParseError,
             .severity = beamlab::core::Severity::Error,
-            .message = "No se pudieron detectar columnas Geant4 x_cm,y_cm,z_cm,time_ns,trackID,eventID",
+            .message = "Geant4 header does not match expected 15-column format: x_cm y_cm z_cm edep_MeV kinE_MeV momx_MeV momy_MeV momz_MeV time_ns trackID parentID eventID pdg particleName source_file",
             .details = file_path
         };
         return result;
@@ -382,9 +360,7 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
 
         const auto tokens = splitLine(line, schema.delimiter);
 
-        const std::size_t required_size =
-            std::max({columns.x_cm, columns.y_cm, columns.z_cm,
-                      columns.time_ns, columns.trackID, columns.eventID}) + 1;
+        constexpr std::size_t required_size = 15;
 
         if (tokens.size() < required_size) {
             recordDrop("too few columns", line_number);
@@ -403,12 +379,16 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
             continue;
         }
 
-        // Physical-domain validation.  Geant4 should never emit negative
-        // time or negative energies; if present, the file is corrupted or has
-        // been edited.  Refuse the row instead of laundering it into the
-        // dataset.
         if (*time_ns < 0.0) {
             recordDrop("time_ns < 0", line_number);
+            continue;
+        }
+
+        const auto pdg_val = parseInteger(tokens[columns.pdg]);
+        std::string particle_name = tokens[columns.particleName];
+
+        if (!pdg_val) {
+            recordDrop("pdg not parseable", line_number);
             continue;
         }
 
@@ -493,18 +473,24 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
             momz_opt.value_or(0.0)
         };
 
-        // Capture particle info from the first step of each trajectory.
-        // Geant4 convention: the very first step of a primary track has edep≈0
-        // and kinE equal to the gun energy.
         if (trajectory.samples.empty()) {
-            trajectory.particle.event_id      = static_cast<int>(*event_id);
-            trajectory.particle.track_id      = static_cast<int>(*track_id);
+            trajectory.particle.event_id        = static_cast<int>(*event_id);
+            trajectory.particle.track_id        = static_cast<int>(*track_id);
             trajectory.particle.initial_kinE_MeV = sample.kinE_MeV;
-            // Charge sign heuristic: mu- is the most common cosmic/beam muon.
-            // Files with mu+ would require a dedicated column; default to mu-.
-            trajectory.particle.particle_type = "mu-";
-            trajectory.particle.charge        = -1.0;
-            trajectory.particle.mass_MeV      = 105.6583755; // muon rest mass
+            trajectory.particle.particle_type   = particle_name;
+
+            const int pdg_abs = *pdg_val < 0 ? -static_cast<int>(*pdg_val)
+                                             : static_cast<int>(*pdg_val);
+            trajectory.particle.charge = (*pdg_val < 0) ? 1.0 : -1.0;
+            if (pdg_abs == 13) {
+                trajectory.particle.mass_MeV = 105.6583755;
+            } else if (pdg_abs == 11) {
+                trajectory.particle.mass_MeV = 0.51099895;
+            } else if (pdg_abs == 2212) {
+                trajectory.particle.mass_MeV = 938.272089;
+            } else {
+                trajectory.particle.mass_MeV = 105.6583755;
+            }
         }
 
         trajectory.samples.push_back(sample);
