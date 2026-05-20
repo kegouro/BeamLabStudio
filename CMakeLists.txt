@@ -221,3 +221,7 @@ if(BEAMLAB_ENABLE_QT_UI)
 endif()
 
 add_subdirectory(tests/unit)
+
+install(TARGETS beamlab beamlab_ui RUNTIME DESTINATION bin)
+install(DIRECTORY scripts/ DESTINATION share/BeamLabStudio/scripts
+    FILES_MATCHING PATTERN "*.sh" PATTERN "*.py" PATTERN "*.cmd")
