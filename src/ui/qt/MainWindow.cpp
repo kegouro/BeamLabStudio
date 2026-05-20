@@ -4,8 +4,8 @@
 #include "ui/qt/ObjViewerWidget.h"
 #include "ui/qt/RunDashboardWidget.h"
 #include "ui/qt/Scene3DWidget.h"
-#include "ui/qt/SimulatorWidget.h"
 #include "ui/qt/StatsDashboardWidget.h"
+#include "biosim/ui/qt/BioSimWidget.h"
 
 #include <QAction>
 #include <QBrush>
@@ -15,17 +15,20 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDockWidget>
 #include <QDragEnterEvent>
 #include <QGroupBox>
 #include <QCheckBox>
 #include <QDir>
 #include <QDirIterator>
 #include <QDropEvent>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
 #include <QGraphicsEllipseItem>
+#include <QScopeGuard>
 #include <QGridLayout>
 #include <QGraphicsPathItem>
 #include <QGraphicsScene>
@@ -262,7 +265,7 @@ QStringList defaultAnalysisArguments(const QFileInfo& input_info)
     }
 
     args << "--window" << "5";
-    args << "--caustic-points" << "96";
+    args << "--caustic-points" << "256";
     args << "--lens-points" << "128";
     args << "--lens-layers" << "16";
     args << "--preview-trajectories" << "10000";
@@ -461,6 +464,122 @@ void fitSceneInView(QGraphicsView* view, QGraphicsScene* scene)
     view->fitInView(bounds, Qt::KeepAspectRatio);
 }
 
+// ---------------------------------------------------------------------------
+// SidebarTabBar — horizontal-text west-side tab bar with collapse support
+// SidebarTabWidget — QTabWidget subclass that installs the custom bar
+// ---------------------------------------------------------------------------
+class SidebarTabBar final : public QTabBar {
+public:
+    static constexpr int kExpandedW  = 168;
+    static constexpr int kCollapsedW = 10;
+    static constexpr int kTabH       = 36;
+
+    explicit SidebarTabBar(QWidget* parent = nullptr) : QTabBar(parent) {
+        setExpanding(false);
+        setDrawBase(false);
+        setMouseTracking(true);
+    }
+
+    QSize tabSizeHint(int) const override {
+        return QSize(expanded_ ? kExpandedW : kCollapsedW, kTabH);
+    }
+    QSize minimumTabSizeHint(int idx) const override { return tabSizeHint(idx); }
+
+    QSize sizeHint() const override {
+        const int n = std::max(1, count());
+        return QSize(expanded_ ? kExpandedW : kCollapsedW, n * kTabH);
+    }
+    QSize minimumSizeHint() const override {
+        return QSize(expanded_ ? kExpandedW : kCollapsedW, kTabH);
+    }
+
+    bool isExpanded() const { return expanded_; }
+    void setExpanded(bool e) {
+        expanded_ = e;
+        updateGeometry();
+        update();
+        // Tell the parent QTabWidget to re-layout the content pane.
+        if (auto* p = parentWidget()) {
+            p->updateGeometry();
+            if (auto* l = p->layout()) l->invalidate();
+        }
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+
+        // Sidebar background
+        p.fillRect(rect(), QColor(15, 18, 28));
+
+        if (!expanded_) {
+            // Collapsed: just draw the accent stripe
+            p.fillRect(rect().right() - 1, 0, 2, height(), QColor(30, 44, 68));
+            return;
+        }
+
+        const QPoint cursor = mapFromGlobal(QCursor::pos());
+        for (int i = 0; i < count(); ++i) {
+            const QRect r = tabRect(i);
+            const bool sel = (i == currentIndex());
+            const bool hov = r.contains(cursor) && !sel;
+
+            // Row background
+            const QColor bg = sel ? QColor(13, 20, 36) : (hov ? QColor(22, 30, 48) : Qt::transparent);
+            if (bg != Qt::transparent) p.fillRect(r, bg);
+
+            // Selected accent bar (left edge for West tabs)
+            if (sel) {
+                p.fillRect(r.left(), r.top() + 4, 3, r.height() - 8,
+                           QColor(74, 158, 255));
+            }
+
+            // Label
+            const QColor ink = sel ? QColor(232, 238, 248)
+                                   : (hov ? QColor(190, 205, 224) : QColor(100, 116, 140));
+            p.setPen(ink);
+            QFont f = p.font();
+            f.setPointSizeF(10.5);
+            f.setBold(sel);
+            p.setFont(f);
+
+            const QRect text_r = r.adjusted(14, 0, -6, 0);
+            const QFontMetrics fm(f);
+            const QString elided = fm.elidedText(tabText(i), Qt::ElideRight, text_r.width());
+            p.drawText(text_r, Qt::AlignLeft | Qt::AlignVCenter, elided);
+        }
+
+        // Right border
+        p.setPen(QPen(QColor(26, 34, 52), 1));
+        p.drawLine(rect().right(), 0, rect().right(), height());
+    }
+
+    void mouseMoveEvent(QMouseEvent* e) override { QTabBar::mouseMoveEvent(e); update(); }
+    void leaveEvent(QEvent* e) override           { QTabBar::leaveEvent(e);     update(); }
+
+private:
+    bool expanded_{true};
+};
+
+// Wraps QTabWidget to install SidebarTabBar (setTabBar is protected).
+class SidebarTabWidget final : public QTabWidget {
+public:
+    explicit SidebarTabWidget(QWidget* parent = nullptr)
+        : QTabWidget(parent)
+        , bar_(new SidebarTabBar(this))
+    {
+        setTabBar(bar_);
+        setTabPosition(QTabWidget::West);
+        setDocumentMode(true);
+    }
+
+    SidebarTabBar* sidebarBar() { return bar_; }
+
+private:
+    SidebarTabBar* bar_{nullptr};
+};
+
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -598,35 +717,35 @@ QPushButton:disabled {
     border-color: #1A2030;
 }
 
-/* ── Tab widget ── */
+/* ── Tab widget (sidebar / West position) ── */
 QTabWidget::pane {
     background-color: #0D1016;
     border: none;
-    border-top: 2px solid #1A2235;
+    border-left: 1px solid #1A2235;
 }
+QTabWidget::tab-bar {
+    alignment: left;
+}
+/* Custom SidebarTabBar draws its own tabs — suppress Qt's default rendering */
 QTabBar {
-    background-color: #111520;
+    background-color: #0F1218;
+    border: none;
 }
 QTabBar::tab {
-    background-color: #111520;
-    color: #6B7A94;
+    background: transparent;
     border: none;
-    border-right: 1px solid #1A2235;
-    padding: 9px 16px;
-    font-size: 12px;
-    min-width: 80px;
+    color: transparent;
+    padding: 0;
+    margin: 0;
 }
-QTabBar::tab:selected {
-    background-color: #0D1016;
-    color: #E8EEF8;
-    border-bottom: 2px solid #4A9EFF;
+QTabBar::tab:selected, QTabBar::tab:hover {
+    background: transparent;
+    border: none;
 }
-QTabBar::tab:hover:!selected {
-    background-color: #141C2C;
-    color: #C5D0E0;
-}
-QTabBar::tab:first {
-    border-left: none;
+/* Prevent the "tab-bar background" from painting over our custom bar */
+QTabBar::scroller {
+    width: 0;
+
 }
 
 /* ── Group boxes (3D controls) ── */
@@ -1075,9 +1194,28 @@ QFrame[frameShape="5"] {
     top_bar->addWidget(export_mp4_button_);
     top_bar->addWidget(export_pdf_button_);
 
-    tabs_ = new QTabWidget(central);
-    tabs_->setDocumentMode(true);
-    tabs_->tabBar()->setExpanding(false);
+    {
+        auto* stab = new SidebarTabWidget(central);
+        tabs_ = stab;
+
+        // Collapse/expand toggle button in top-left corner.
+        auto* toggle_btn = new QPushButton("◀", stab);
+        toggle_btn->setFixedSize(22, 22);
+        toggle_btn->setToolTip("Collapse / expand navigation");
+        toggle_btn->setStyleSheet(
+            "QPushButton { background: #111827; color: #6B7A94; border: 1px solid #1E2A3A;"
+            " border-radius: 3px; font-size: 10px; padding: 0; }"
+            "QPushButton:hover { background: #1C2538; color: #C5D0E0; }");
+        stab->setCornerWidget(toggle_btn, Qt::TopLeftCorner);
+
+        connect(toggle_btn, &QPushButton::clicked, toggle_btn,
+                [toggle_btn, stab]() {
+                    SidebarTabBar* bar = stab->sidebarBar();
+                    const bool now = !bar->isExpanded();
+                    bar->setExpanded(now);
+                    toggle_btn->setText(now ? "◀" : "▶");
+                });
+    }
 
     dashboard_ = new RunDashboardWidget(tabs_);
 
@@ -1334,6 +1472,12 @@ QFrame[frameShape="5"] {
     combined_controls_layout->addWidget(overlays_section_label);
     combined_controls_layout->addWidget(show_axes_check_);
     combined_controls_layout->addWidget(show_measure_guides_check_);
+    auto* combined_gradient_check = new QCheckBox("Energy gradient (trajectories)", combined_controls);
+    combined_gradient_check->setToolTip("Color trajectory lines by kinetic energy from CSV");
+    combined_controls_layout->addWidget(combined_gradient_check);
+    connect(combined_gradient_check, &QCheckBox::toggled, this, [this](bool on) {
+        combined_scene_viewer_->setLayerEnergyGradient(combined_trajectory_layer_, on);
+    });
     combined_controls_layout->addSpacing(10);
     combined_controls_layout->addWidget(mode_section_label);
     combined_controls_layout->addWidget(beam_display_mode_);
@@ -1537,10 +1681,18 @@ QFrame[frameShape="5"] {
         auto* xy3d    = new QPushButton("XY",    traj3d_page);
         auto* yz3d    = new QPushButton("YZ",    traj3d_page);
         auto* xz3d    = new QPushButton("XZ",    traj3d_page);
-        auto* axes3d  = new QCheckBox("Axes",    traj3d_page);
-        auto* meas3d  = new QCheckBox("Measures",traj3d_page);
+        auto* axes3d    = new QCheckBox("Axes",            traj3d_page);
+        auto* meas3d    = new QCheckBox("Measures",        traj3d_page);
+        auto* gradient3d = new QCheckBox("Energy gradient", traj3d_page);
         axes3d->setChecked(true);
         meas3d->setChecked(true);
+
+        traj3d_energy_label_ = new QLabel(traj3d_page);
+        traj3d_energy_label_->setStyleSheet(
+            "QLabel { color: #88ffcc; font-size: 10px; padding: 2px 6px; "
+            "background: #0d1a0d; border: 1px solid #226633; border-radius: 3px; }"
+        );
+        traj3d_energy_label_->setVisible(false);
 
         traj3d_count_label_  = new QLabel("Trajectories: 0/0", traj3d_page);
         traj3d_count_slider_ = new QSlider(Qt::Horizontal, traj3d_page);
@@ -1563,6 +1715,8 @@ QFrame[frameShape="5"] {
         traj3d_toolbar->addSpacing(10);
         traj3d_toolbar->addWidget(axes3d);
         traj3d_toolbar->addWidget(meas3d);
+        traj3d_toolbar->addWidget(gradient3d);
+        traj3d_toolbar->addWidget(traj3d_energy_label_);
         traj3d_toolbar->addSpacing(16);
         traj3d_toolbar->addWidget(traj3d_count_label_);
         traj3d_toolbar->addWidget(traj3d_count_slider_);
@@ -1579,6 +1733,16 @@ QFrame[frameShape="5"] {
         connect(xz3d,  &QPushButton::clicked, trajectories_obj_viewer_, [this]() { trajectories_obj_viewer_->setViewPreset(3); });
         connect(axes3d, &QCheckBox::toggled, trajectories_obj_viewer_, &ObjViewerWidget::setAxesVisible);
         connect(meas3d, &QCheckBox::toggled, trajectories_obj_viewer_, &ObjViewerWidget::setMeasureGuidesVisible);
+        connect(gradient3d, &QCheckBox::toggled,
+                trajectories_obj_viewer_, &ObjViewerWidget::setEnergyGradientEnabled);
+        connect(gradient3d, &QCheckBox::toggled, traj3d_energy_label_,
+                [this](bool on) { if (!on) traj3d_energy_label_->setVisible(false); });
+        connect(trajectories_obj_viewer_, &ObjViewerWidget::energyPicked, this,
+                [this](double kinE_MeV, QPointF /*screen_pos*/) {
+                    traj3d_energy_label_->setText(
+                        QString("kinE: %1 MeV").arg(kinE_MeV, 0, 'g', 5));
+                    traj3d_energy_label_->setVisible(true);
+                });
 
         connect(traj3d_count_slider_, &QSlider::valueChanged, this, [this](int value) {
             const QSignalBlocker blocker(traj3d_count_spin_);
@@ -1608,8 +1772,9 @@ QFrame[frameShape="5"] {
     tabs_->addTab(focal_slice_table_, "Focal slice CSV");
     tabs_->addTab(envelope_table_, "Focal envelope rings CSV");
 
-    simulator_widget_ = new SimulatorWidget();
-    tabs_->addTab(simulator_widget_, "Simulator");
+
+    bio_sim_widget_ = new beamlab::biosim::BioSimWidget();
+    tabs_->addTab(bio_sim_widget_, "BioSim");
 
     info_widget_ = new InfoWidget();
     tabs_->addTab(info_widget_, "Info");
@@ -2231,9 +2396,6 @@ void MainWindow::loadManifest(const QString& path)
     run_dir.cdUp();
     current_run_dir_ = run_dir.absolutePath();
 
-    if (simulator_widget_) {
-        simulator_widget_->setRunDirectory(current_run_dir_);
-    }
 
     const auto trajectories_csv = resolvePath(
         extractJsonString(text, "trajectories_preview_csv"),
@@ -2307,6 +2469,15 @@ void MainWindow::loadManifest(const QString& path)
     current_beamline_obj_.clear();
     updateExportControls();
 
+    // Auto-load BioSim CSV from run directory (energy_step_profile.csv).
+    if (bio_sim_widget_ != nullptr) {
+        const QDir run_dir(current_run_dir_);
+        const QString bio_csv = run_dir.filePath("energy_step_profile.csv");
+        if (QFileInfo::exists(bio_csv)) {
+            bio_sim_widget_->setCsvPath(bio_csv);
+        }
+    }
+
     dashboard_->loadFromManifest(
         text,
         trajectories_csv,
@@ -2322,6 +2493,8 @@ void MainWindow::loadManifest(const QString& path)
     status_label_->setText("Loaded: " + path);
 
     trajectories_obj_viewer_->loadObj(trajectories_obj);
+    if (!trajectories_csv.isEmpty() && QFileInfo::exists(trajectories_csv))
+        trajectories_obj_viewer_->loadEnergyCSV(trajectories_csv);
     caustic_obj_viewer_->loadObj(caustic_preview_obj.isEmpty() ? caustic_obj : caustic_preview_obj);
     lens_obj_viewer_->loadObj(lens_preview_obj.isEmpty() ? lens_obj : lens_preview_obj);
 
@@ -2350,6 +2523,8 @@ void MainWindow::loadManifest(const QString& path)
         trajectories_obj,
         QColor(120, 255, 210)
     );
+    if (!trajectories_csv.isEmpty() && QFileInfo::exists(trajectories_csv))
+        combined_scene_viewer_->loadLayerEnergyCSV(combined_trajectory_layer_, trajectories_csv);
 
     combined_caustic_layer_ = combined_scene_viewer_->addObjLayer(
         "Focal envelope proxy",
@@ -2810,6 +2985,14 @@ bool MainWindow::exportTrajectoryVideoTo(const QString& path,
     }
 
     QDir frame_dir(frame_dir_path);
+
+    if (tabs_ != nullptr) tabs_->setEnabled(false);
+    if (combined_controls_dock_ != nullptr) combined_controls_dock_->setEnabled(false);
+    auto restore_ui = qScopeGuard([this] {
+        if (tabs_ != nullptr) tabs_->setEnabled(true);
+        if (combined_controls_dock_ != nullptr) combined_controls_dock_->setEnabled(true);
+    });
+
     const int old_tab = tabs_ != nullptr ? tabs_->currentIndex() : -1;
     const int old_mode = beam_display_mode_ != nullptr ? beam_display_mode_->currentIndex() : 0;
     const int old_lambda = trajectory_parameter_slider_ != nullptr ? trajectory_parameter_slider_->value() : 100;
@@ -2848,7 +3031,10 @@ bool MainWindow::exportTrajectoryVideoTo(const QString& path,
         }
 
         combined_scene_viewer_->update();
-        QApplication::processEvents();
+        {
+            QEventLoop loop;
+            loop.processEvents(QEventLoop::ExcludeUserInputEvents);
+        }
 
         const QPixmap frame_pixmap = combined_scene_viewer_->grab();
         const QString frame_path =
@@ -3265,7 +3451,7 @@ bool MainWindow::buildFullEnvelopePreviewObj(const QString& trajectories_csv,
         return false;
     }
 
-    constexpr int angle_count = 48;
+    constexpr int angle_count = 128;
     constexpr double pi = 3.141592653589793238462643383279502884;
     const int bin_count = std::clamp(
         static_cast<int>(samples.size() / 500),
