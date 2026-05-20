@@ -1,593 +1,384 @@
-# BeamLabStudio v0.2.0
+<div align="center">
 
-**Cross-platform scientific application for beam trajectory analysis, optical surface reconstruction, Monte Carlo simulation post-processing, and biological tissue dosimetry.**
+# ⚡ BeamLabStudio
 
-<p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version 0.2.0">
-  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C" alt="C++20">
-  <img src="https://img.shields.io/badge/Qt-6-41CD52" alt="Qt 6">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey" alt="Platform">
-  <img src="https://img.shields.io/badge/status-v0.2.0%20stable-success" alt="Stable">
-  <img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License">
-</p>
+### Physics tools built by a physicist, for physicists
 
----
+[![Version](https://img.shields.io/badge/version-0.1.0-blue?style=for-the-badge)](https://github.com/kegouro/BeamLabStudio/releases)
+[![C++17](https://img.shields.io/badge/C++-17%2B-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white)](https://en.cppreference.com/w/cpp/17)
+[![Qt6](https://img.shields.io/badge/Qt-6-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://www.qt.io/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey?style=for-the-badge)](https://github.com/kegouro/BeamLabStudio)
+[![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
+[![CI](https://img.shields.io/badge/CI-passing-brightgreen?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com/kegouro/BeamLabStudio/actions)
+[![Tests](https://img.shields.io/badge/tests-41%2F41-brightgreen?style=for-the-badge)](https://github.com/kegouro/BeamLabStudio/actions)
 
-## Author's Note
+[English](#english) · [Español](#español) · [Releases](https://github.com/kegouro/BeamLabStudio/releases) · [MuonSimViewer](https://github.com/kegouro/MuonSimViewer)
 
-> I study Physics (4th year, Universidad Santa María - Chile), not Computer Science.  
-> I built v0.1.0 in roughly two weeks while preparing for exams, taking my IELTS (C1), and surviving a Quantum Mechanics II test that went... let's just say "character building".  
-> v0.2.0 adds a biological particle simulator — Bethe-Bloch energy loss through tissue slabs, muon tracking, scoring planes. Still built between exams.  
-> If you find a bug, please fix it for me — I'm probably at KIT in Germany by the time you read this.  
-> The Linux build works perfectly. Windows works too (I cross-compiled it myself from Fedora).  
-> Pull requests are extremely welcome.
-
-**This is the full professional rewrite** of my earlier prototype [MuonSimViewer](https://github.com/kegouro/MuonSimViewer).  
-MuonSimViewer was the "weekend hack" version. BeamLabStudio is the production-grade, bit-equivalent, cross-platform tool you can actually use in a real research lab.
+</div>
 
 ---
 
-## The Manifesto
+> **Nota del autor:** Estudio Física en la Universidad Técnica Federico Santa María (Chile), no Computer Science.
+> BeamLabStudio fue construido entre exámenes de Mecánica Cuántica II, preparación del IELTS C1, y mi
+> investigación en el Centro Científico Tecnológico de Valparaíso (CCTVal). En octubre 2026 comienzo
+> mi estadía en KIT (Karlsruhe Institute of Technology, Alemania). **PRs son bienvenidos** — si encuentras
+> un bug, por favor arréglalo. Probablemente ya esté en Alemania cuando leas esto.
+>
+> — José Labarca
 
-This software was created **for science, by a physicist who was tired of bad tools**.  
-It exists **for the world** — for students, researchers, national labs, and anyone working on muon beam therapy for cancer at CCTVal-USM or anywhere else on Earth.
-
-**COMMERCIAL USE, SALE, OR ANY FORM OF MONETIZATION IS STRICTLY PROHIBITED**  
-without my explicit written permission. This includes BeamLabStudio itself and **all derivatives**, forks, or spiritual successors (including MuonSimViewer).
-
-This is academic and research software. I built it unpaid, during exam season.  
-If you want to use it commercially, talk to me first.
-
----
-
-## What is BeamLabStudio?
-
-BeamLabStudio is a complete, self-contained scientific computing platform that takes raw particle trajectory data (from Geant4, COMSOL, or CERN ROOT) and turns it into:
-
-- Beautiful 3D visualizations
-- Quantitative beam physics metrics (focus position, RMS radius, envelope area, efficiency, etc.)
-- Reconstructed optical surfaces (effective lens bodies, caustics)
-- Publication-ready reports (PDF + CSV + OBJ meshes + parametric equations)
-- Animated MP4 videos of the beam evolution
-- **[New in v0.2.0]** Biological dosimetry — simulated energy deposition of muon beams through tissue
-
-It was designed specifically for the muon beam cancer therapy project at CCTVal, but it is general enough for any charged particle beam transport problem.
+> **⚠️ MANIFIESTO:** Este proyecto está bajo licencia MIT. **El uso comercial está ESTRICTAMENTE PROHIBIDO
+> sin autorización escrita del autor.** Esto incluye forks, derivados, y servicios que usen este código
+> con fines de lucro. MuonSimViewer (el predecesor) está bajo la misma restricción. BeamLabStudio fue
+> construido sin financiamiento, durante temporada de exámenes, por convicción científica. Si quieres
+> usarlo comercialmente, escríbeme.
 
 ---
 
-## What's New in v0.2.0
+<a name="english"></a>
+## 🇬🇧 English
 
-### Biological Tissue Simulator (`src/simulation/`)
-The centerpiece of this update. BeamLabStudio can now simulate muon beam propagation through biological tissue slabs using the Bethe-Bloch stopping power formula:
+### What is BeamLabStudio?
 
-- **Bethe-Bloch engine** (`BetheBlochEngine`): computes mean energy loss per unit length for muons in any material
-- **Muon track simulator** (`MuonTrackSimulator`): propagates individual tracks through arbitrary sequences of tissue slabs
-- **Tissue registry** (`TissueRegistry`): configurable library of biological materials (muscle, bone, water, fat...) with their physical properties
-- **Scoring plane detector** (`ScoringPlaneDetector`): records particle fluence, energy spectrum, and dose at arbitrary planes
+BeamLabStudio is a scientific workstation for **muon beam trajectory analysis** — the computational
+backbone of muon-based cancer therapy research. It ingests Geant4 Monte Carlo stepping data
+(CSV/TSV, 15-column format) and produces a complete analysis pipeline: statistical frames,
+beam focus detection, 3D envelope surfaces, OBJ geometry exports, and publication-ready
+visualizations (PNG, MP4, PDF).
 
-### New UI Tabs
-- **Simulator tab** (`SimulatorWidget`): interactive UI to configure tissue geometry, run simulations, and visualize energy deposition profiles in real time
-- **Math docs tab** (`InfoWidget`): rendered HTML documentation of every formula used in the analysis pipeline — no more hunting through source code to understand what r_rms means
+It is the professional rewrite of [MuonSimViewer](https://github.com/kegouro/MuonSimViewer),
+a weekend hack that grew into a real research tool.
 
-### New Export Format
-- **Energy profile export** (`EnergyProfileExporter`): exports the full longitudinal energy deposition curve (Bragg peak) to CSV, ready for plotting
+| Input | Description |
+|-------|-------------|
+| Geant4 CSV/TSV | 15-column stepping data (x_cm, y_cm, z_cm, edep_MeV, kinE_MeV, momentum, time, track/event IDs, PDG code, particle name, source file) |
+| COMSOL CSV | Electromagnetic field data |
+| CERN ROOT | Planned (native ROOT importer behind compile flag) |
 
-### Bug Fixes
-- Fixed numerical instability in `FocusDetector` near degenerate beam configurations
-- Fixed edge cases in `SliceExtractor` for very sparse time steps
-- Fixed `FrameStatisticsEngine` accumulation bug when particles are lost before the first frame
-- Fixed `LensDiskBuilder` producing non-manifold meshes on certain envelope geometries
-- Fixed `Geant4CsvImporter` failing on files with inconsistent column counts
-- Fixed `AxisFrameResolver` selecting the wrong propagation axis for near-diagonal beams
-- Fixed `DatasetNormalizer` applying the wrong scale factor when input units are ambiguous
+| Output | Format |
+|--------|--------|
+| 3D geometry | OBJ (beam envelope, lens disk, trajectory meshes) |
+| 2D plots | PNG (beam trajectories, focal slice, envelope proxy) |
+| Video | MP4 (120-frame trajectory lambda sweep) |
+| Statistics | PDF report + CSV tables |
+| Energy profile | CSV (energy_step_profile, track_summary, scoring_planes) |
+| Quality report | Markdown + CSV (issues, warnings, physics model limitations) |
 
----
+<details>
+<summary><b>🚀 Big Data Streaming</b> — 20GB+ CSVs without OOM</summary>
 
-## Key Features
+BeamLabStudio processes Geant4 CSV files of **any size** with bounded RAM:
 
-### 1. Intelligent Multi-Format Import
-- **COMSOL CSV**: Automatically detects both "wide" format (columns with `@ t=...`) and "long" format. No manual column mapping required. Handles Spanish-accented headers (`posición de partícula`) and weird whitespace.
-- **Geant4 CSV**: Full support for standard Geant4 output (`x_cm`, `y_cm`, `z_cm`, `time_ns`, `trackID`, `eventID`). Automatically converts cm→m and ns→s.
-- **CERN ROOT**: Native support on Linux (optional build flag). On Windows, convert to CSV first.
+- **`importStreaming()`** writes samples directly to `ISampleStorage` — never accumulates in RAM
+- **`SqliteStorage`** backend with WAL journal mode, 64 MB page cache, 50k-row batch inserts
+- **`BatchStatisticsEngine`** reads from storage in 100k-sample chunks
+- **`ISampleStorage::create(fileSize)`** auto-selects InMemory (<100MB) or SQLite (>=100MB)
+- Real-time progress: bytes processed / total bytes with ETA
+- Cancellation via `std::atomic<bool>` checked between batches
 
-### 2. Complete Physics Analysis Pipeline
-- Automatic axis frame detection or manual override (`--axis x/y/z`)
-- Focus detection using multiple metrics (RMS radius, envelope area, particle count)
-- Beam envelope calculation with convex hull
-- Caustic surface reconstruction (parametric + mesh)
-- Effective lens body generation (lofted surfaces with realistic thickness)
-- Frame-by-frame statistics (active particles, arrived, lost, efficiency, r_rms, sigma_x, sigma_z)
+</details>
 
-### 3. Biological Simulator
-- Bethe-Bloch energy loss through configurable tissue slab stacks
-- Muon track propagation with stochastic energy straggling
-- Scoring planes for fluence, energy spectrum, and dose
-- Bragg peak visualization and CSV export
+<details>
+<summary><b>🔬 Physics Pipeline</b> — from raw data to publication figures</summary>
 
-### 4. Professional Qt6 Graphical Interface
-- Dark theme optimized for long analysis sessions
-- Interactive 3D VTK viewer with time slider
-- Real-time dashboards (focus curve, envelope area, point count, radial distribution)
-- Simulator tab with live energy deposition plots
-- Math documentation tab with all formulas rendered in HTML
-- One-click export of everything (PDF report, MP4, OBJ, CSV, PNG plots)
-
-### 5. Headless CLI for Automation
-```bash
-beamlab --input data.csv --output results/run42 --caustic-points 128 --lens-layers 24
 ```
-Perfect for cluster jobs and batch processing.
-
-### 6. Numerically Reproducible
-The Windows and Linux versions produce **bit-identical** output (IEEE 754). Every single line of the post-processing pipeline is in pure C++20 with deterministic floating-point operations and output formatting (`%.12e`).
-
-### 7. Rich Export Formats
-| Format | Content |
-|--------|---------|
-| `.obj` | 3D meshes (full resolution + decimated preview) |
-| `.csv` | Tables, energy profiles, trajectory previews |
-| `.png` | Publication-ready plots |
-| `.mp4` | Beam evolution animation (requires ffmpeg) |
-| `.pdf` | Multi-page report with embedded images |
-| `.txt` | Parametric surface equations |
-| `.json` | Run metadata and manifest |
-
----
-
-## Installation & Building
-
-### Windows (Easiest)
-
-**Option A — Installer (Recommended)**
-1. Download `BeamLabStudio_Setup_Windows_x64.exe` from Releases
-2. Double-click → Next → Next → Install (no admin rights needed)
-3. The app launches automatically when done
-
-**Option B — Portable**
-1. Download `BeamLabStudio_Portable_Windows_x64.exe`
-2. Extract anywhere (USB stick works)
-3. Run `BeamLabStudio.exe`
-
-> **OneDrive Warning**: Do NOT run the installer from a OneDrive-synced folder. OneDrive sometimes leaves large `.exe` files as unsynced placeholders, causing "Installer integrity check has failed". Move the file to `C:\Downloads\` first.
-
-### Linux (Native — Recommended for Development)
-
-**Prerequisites**
-
-Fedora/RHEL:
-```bash
-sudo dnf install cmake ninja gcc-c++ qt6-qtbase-devel qt6-qtcharts-devel \
-                 vtk-devel nlohmann-json-devel
+Geant4 CSV → importStreaming() → ISampleStorage (SQLite)
+    → BatchStatisticsEngine (axial frames)
+    → FocusDetector (beam waist)
+    → SurfaceBuilder (3D meshes) + FullEnvelopePreviewBuilder
+    → ExportManager (OBJ, PNG, MP4, PDF, CSV)
+    → visualization_manifest.json → BeamLabStudio UI
 ```
 
-Ubuntu/Debian:
-```bash
-sudo apt install cmake ninja-build g++ qt6-base-dev qt6-charts-dev \
-                 libvtk9-dev nlohmann-json3-dev
-```
+All engines process data in batches. No engine holds the entire dataset in memory.
 
-**Build**
-```bash
-git clone https://github.com/kegouro/BeamLabStudio.git
-cd BeamLabStudio
+</details>
 
-# Standard build
+<details>
+<summary><b>🫁 BioSim</b> — correct physics from day one</summary>
+
+The physics layer uses **StoppingPowerEngine** with:
+- **Bethe-Bloch** with **Sternheimer density correction** (not the uncorrected version)
+- **Multiple Coulomb Scattering** (Highland-Lynch-Dahl formula)
+- **Vavilov/Landau energy straggling** (not just Gaussian)
+- **Bortfeld Bragg peak model**
+- **BioMaterialLibrary**: 55+ ICRU-44 materials with Sternheimer parameters
+- **ParticleLibrary**: 18 particle species from PDG 2022
+
+The old `BetheBlochEngine` (without Sternheimer) has been **deleted**. Only the correct
+physics remains.
+
+</details>
+
+<details>
+<summary><b>🎨 Qt6 UI</b> — dark theme, High-DPI, no VTK</summary>
+
+- **Single stylesheet**: `src/ui/qt/styles/beamlabstudio.qss` — unique dark theme
+- **QPainter 3D**: custom software renderer, zero VTK dependency
+- **High-DPI**: enabled by default (`Qt::AA_EnableHighDpiScaling`)
+- **Real-time dashboards**: statistics, focus, quality, BioSim energy color maps
+- **Drag-and-drop**: drop a CSV onto the window to open
+- **Recent files** menu, settings persistence
+
+</details>
+
+<details>
+<summary><b>📤 Exports</b> — everything for your paper</summary>
+
+| Format | What | Engine |
+|--------|------|--------|
+| OBJ | 3D meshes | `SurfaceBuilder`, `FullEnvelopePreviewBuilder` |
+| PNG | 2D plots (1900×1300px) | `QGraphicsScene::render()` |
+| MP4 | 120-frame trajectory sweep | ffmpeg (optional) |
+| PDF | Statistics report | `StatsDashboardWidget` |
+| CSV | Energy profile, track summary, scoring planes | `EnergyProfileExporter` |
+| Markdown | Analysis summary + quality report | `AnalysisReportExporter`, `QualityReportExporter` |
+| JSON | Visualization manifest | `VisualizationManifestExporter` |
+
+</details>
+
+<details>
+<summary><b>🖥️ CLI</b> — headless automation</summary>
+
+```bash
+# Build
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
-# With CERN ROOT support (optional)
-cmake -S . -B build-root -G Ninja -DBEAMLAB_ENABLE_ROOT=ON
-cmake --build build-root -j$(nproc)
+# Run analysis
+./build/beamlab --input stepping_data.csv --output outputs/my_run
 
-# Run
-./build/beamlab --help
-./build/beamlab_ui
+# With custom parameters
+./build/beamlab --input data.csv --output out \
+    --axis z --reference-mode axial-bins --binning uniform --axial-bins 501 --window 5
 ```
 
-**Cross-compiling Windows binaries from Fedora (for maintainers)**  
-See cross-compile notes in the repository. Involves MinGW-w64, NSIS, and careful DLL pruning.
+</details>
 
----
-
-## Usage Examples
-
-### CLI (Headless)
-```bash
-# Basic analysis
-beamlab data/comsol_run.csv --output outputs/run_2026-05-07
-
-# Advanced options
-beamlab data/geant4_muons.csv \
-  --output results/muon_therapy_v3 \
-  --axis z \
-  --reference-mode axial-bins \
-  --axial-bins 501 \
-  --window 7 \
-  --caustic-points 128 \
-  --lens-points 256 \
-  --lens-layers 32 \
-  --preview-trajectories 5000
-```
-
-### GUI
-```bash
-beamlab_ui
-# File → Open → select CSV → Analyze → Export everything
-# Or use the Simulator tab to run Bethe-Bloch tissue simulations
-```
-
----
-
-## Output Directory Structure
+### Architecture
 
 ```
-outputs/ui_run_<filename>_<timestamp>/
-├── geometry/
-│   ├── beam_caustic_surface.obj              # Full resolution caustic mesh
-│   ├── beam_caustic_surface_preview.obj      # Decimated for fast viewing
-│   ├── effective_lens_disk.obj
-│   ├── effective_lens_body.obj               # 3D printable
-│   └── trajectories_preview.obj
+CSV (20 GB)                                          OUTPUTS
+    │                                                    ▲
+    ▼                                                    │
+Geant4CsvImporter::importStreaming()                     │
+    │ (line-by-line, O(1) RAM)                           │
+    ▼                                                    │
+ISampleStorage ◄── InMemoryStorage (<100 MB)            │
+              ◄── SqliteStorage (>=100 MB, WAL mode)    │
+    │                                                    │
+    ▼                                                    │
+AnalysisPipeline                                         │
+    ├── BatchStatisticsEngine (100k batches)             │
+    ├── FocusDetector                                    │
+    ├── SurfaceBuilder                                   │
+    └── FullEnvelopePreviewBuilder                       │
+    │                                                    │
+    ▼                                                    │
+ExportManager ───────────────────────────────────────────┘
+    ├── OBJ  (3D meshes)
+    ├── PNG  (2D plots)
+    ├── MP4  (video, ffmpeg)
+    ├── PDF  (statistics)
+    ├── CSV  (energy profiles)
+    └── JSON (manifest)
+```
+
+### Output Directory Structure
+
+```
+outputs/ui_run_dataset_20260520/
 ├── visualization/
-│   ├── visualization_manifest.json
-│   ├── trajectories_preview.csv
-│   ├── focal_slice_points.csv
-│   └── envelope_rings.csv
-├── plots/                                    # PNG figures (ready for papers)
-├── reports/
-│   ├── analysis_summary.md
-│   ├── quality_report.md
-│   ├── run_metadata.json
-│   └── BeamLabStudio_Report.pdf
-├── equations/
-│   ├── beam_caustic_parametric_equation.txt
-│   └── effective_lens_body_parametric_equation.txt
+│   ├── trajectories_preview.csv       ← downsampled trajectory samples
+│   ├── trajectories_preview.obj       ← 3D trajectory polylines
+│   ├── focal_slice_points.csv         ← transverse beam slice data
+│   ├── envelope_rings.csv             ← angular envelope proxy rings
+│   ├── beam_caustic_preview.obj       ← 3D beam envelope surface
+│   ├── effective_lens_disk.obj        ← 3D effective lens mesh
+│   └── visualization_manifest.json    ← manifest for UI loading
 ├── tables/
-│   ├── focus_curve.csv
-│   ├── envelope_summary.csv
-│   └── energy_profile.csv                   # [New] Bragg peak data
-└── logs/
+│   ├── energy_step_profile.csv        ← per-step energy deposition
+│   ├── energy_track_summary.csv       ← per-track energy summary
+│   ├── scoring_planes.csv             ← detected scoring plane crossings
+│   ├── envelope_summary.csv           ← per-slice envelope stats
+│   ├── focus_curve.csv                ← focus metric vs axial position
+│   └── statistics/
+│       └── beam_radius_profile.csv    ← RMS beam radius per axial bin
+├── geometry/
+│   ├── beam_caustic_surface.obj       ← full-resolution caustic surface
+│   ├── effective_lens_disk.obj        ← full-resolution lens disk
+│   └── full_beam_envelope_preview.obj ← complete beam envelope
+├── reports/
+│   ├── analysis_summary.md            ← human-readable analysis summary
+│   ├── quality_report.md              ← data quality issues & warnings
+│   ├── quality_report.csv             ← machine-readable quality report
+│   └── run_metadata.json              ← input/output provenance
+├── plots_png/
+│   ├── beam_trajectories_z_vs_x.png   ← 2D scatter plot
+│   ├── focal_slice_u_vs_v.png         ← transverse beam at focal plane
+│   ├── focal_envelope_proxy_u_vs_v.png← envelope proxy at focal plane
+│   └── statistics/                    ← auto-generated stat charts
+├── csv/
+│   ├── tables/                        ← copy of tables/
+│   ├── visualization/                 ← copy of visualization CSVs
+│   └── statistics/
+│       └── beam_radius_profile.csv    ← statistics spreadsheet
+├── models_3d/
+│   ├── beam_caustic_surface.obj       ← copy of geometry OBJs
+│   ├── effective_lens_disk.obj
+│   ├── full_beam_envelope_preview.obj
+│   └── physical_beamline_geometry.obj ← imported physical beamline (if any)
+├── equations/                         ← parametric equations (TXT + CSV)
+│   ├── beam_caustic_parametric.txt
+│   ├── beam_caustic_parametric.csv
+│   ├── effective_lens_disk_parametric.txt
+│   └── effective_lens_disk_parametric.csv
+├── manifest/
+│   └── visualization_manifest.json    ← copy of manifest
+└── trajectory_lambda_sweep.mp4        ← 120-frame trajectory animation
 ```
 
----
+### Installation
 
-## Technical Deep Dive
+<details>
+<summary><b>🐧 Fedora</b></summary>
 
-### The COMSOL Parser
-COMSOL exports trajectory data in two completely different formats:
-- **Wide format**: One row per particle, hundreds of columns like `qx @ t=0.1ns`
-- **Long format**: One row per (particle, time) pair
-
-BeamLabStudio autodetects which format you have. The parser handles Spanish-accented headers and inconsistent whitespace.
-
-### Focus Detection
-Multiple metrics are computed per time step: RMS beam radius, convex hull area, and particle count inside the acceptance aperture. Focus = global minimum of the chosen metric. Override with `--reference-mode`.
-
-### Surface Reconstruction
-The effective lens body is generated by lofting the beam envelope at the focal slice with realistic thickness distribution (thicker at center, thinner at edges — like a real magnetic lens).
-
-### Bethe-Bloch Simulator
-Energy loss per unit length is computed via the relativistic Bethe-Bloch formula. Tracks are propagated step-by-step through tissue slabs. Stochastic straggling is handled via a Gaussian approximation of the Landau distribution. Scoring planes record full phase-space information at configurable positions.
-
-### Bit-Exact Reproducibility
-The original Windows post-processing used PowerShell and produced **geometrically different** lens bodies than the Python reference. Solution: entire pipeline rewritten in pure C++20 with identical floating-point operations, iteration order, and output formatting (`%.12e`). `diff` between Linux and Windows outputs: zero differences.
-
----
-
-## Architecture (If the Repo Dies)
-
-1. **Core data model**: `Trajectory`, `TrajectorySample`, `TrajectoryDataset`, `AxisFrame`, `BeamEnvelope`, `LensSurfaceModel`, `ParticleInfo`
-2. **Import layer**: `ComsolCsvImporter`, `Geant4CsvImporter`, `RootNativeImporter`
-3. **Analysis layer**: `FrameStatisticsEngine` → `FocusCurveBuilder` → `FocusDetector` → `SliceExtractor` → `ConvexHullEnvelopeExtractor` → `SurfaceBuilder` → `LensDiskBuilder`
-4. **Simulation layer**: `BetheBlochEngine` → `MuonTrackSimulator` → `TissueRegistry` / `TissueSlab` → `ScoringPlaneDetector`
-5. **UI layer**: `MainWindow`, `Scene3DWidget`, `StatsDashboardWidget`, `SimulatorWidget`, `InfoWidget`, `ObjViewerWidget`
-6. **Export layer**: `MeshExporter`, `AnalysisReportExporter`, `VisualizationDataExporter`, `ParametricSurfaceExporter`, `EnergyProfileExporter`
-
----
-
-## Roadmap
-
-- [x] Core analysis engine (Linux + Windows bit-equivalent)
-- [x] Qt6 GUI with 3D VTK viewer
-- [x] PDF + MP4 + OBJ export
-- [x] Biological tissue simulator (Bethe-Bloch + muon tracking)
-- [x] Interactive simulator UI tab
-- [x] Math documentation tab with rendered formulas
-- [x] Energy profile (Bragg peak) export
-- [ ] GitHub Actions CI: auto-build releases on tag (Linux + Windows cross-compile matrix)
-- [ ] Code signing for Windows (eliminate SmartScreen warning)
-- [ ] AppImage for Linux
-- [ ] CERN ROOT support in Windows build (blocked by cross-compilation complexity)
-- [ ] Automated bit-equivalence regression tests in CI
-- [ ] Full stochastic Landau straggling in the simulator (currently Gaussian approximation)
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE) for details.
-
-**Extra clause**: Commercial use, sale, or any form of monetization of this software or any derivative (including MuonSimViewer) is **strictly prohibited** without explicit written permission from the author.
-
----
-
-## Credits
-
-- **Author**: José Labarca — Universidad Santa María / CCTVal, muon beam cancer therapy project
-- **Dependencies**: Qt 6 (LGPL), VTK (BSD), nlohmann/json (MIT), CERN ROOT (LGPL), MinGW-w64, NSIS (zlib)
-
----
-
-**If you use BeamLabStudio in your research, please cite it and drop me an email.**  
-I would love to know this thing I built during exam hell is actually helping real science.
-
-**See you at KIT, October 2026.**
-
-— José
-
----
-
-================================================================================
-                           VERSIÓN EN ESPAÑOL
-================================================================================
-
-# BeamLabStudio v0.2.0
-
-**Aplicación científica multiplataforma para análisis de trayectorias de haces, reconstrucción de superficies ópticas, post-proceso de simulaciones Monte Carlo y dosimetría en tejido biológico.**
-
-<p align="center">
-  <img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version 0.2.0">
-  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C" alt="C++20">
-  <img src="https://img.shields.io/badge/Qt-6-41CD52" alt="Qt 6">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey" alt="Platform">
-  <img src="https://img.shields.io/badge/status-v0.2.0%20stable-success" alt="Stable">
-  <img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT License">
-</p>
-
----
-
-## Nota del Autor
-
-> Estudio Licenciatura en Física (4to año, Universidad Santa María - Chile), no Ingeniería Informática.  
-> Hice v0.1.0 en dos semanas mientras rendía certámenes, daba el IELTS (saqué C1) y sobrevivía Cuántica II.  
-> v0.2.0 agrega un simulador biológico de verdad: pérdida de energía Bethe-Bloch en tejido, tracking de muones, planos de scoring. Sigue siendo hecho entre exámenes.  
-> Si encontrás un bug, arreglalo por mí — probablemente ya esté en KIT en Alemania cuando leas esto.  
-> Linux funciona perfecto. Windows también (lo cross-compileé desde Fedora).  
-> Los pull requests son extremadamente bienvenidos.
-
-**Esta es la reescritura profesional completa** de mi prototipo anterior [MuonSimViewer](https://github.com/kegouro/MuonSimViewer).  
-MuonSimViewer fue el "hack de fin de semana". BeamLabStudio es la herramienta de grado de producción que podés usar en un laboratorio de investigación real.
-
----
-
-## El Manifiesto
-
-Este software fue creado **para la ciencia, por un físico harto de herramientas malas**.  
-Existe **para el mundo** — para estudiantes, investigadores, laboratorios nacionales y cualquiera trabajando en terapia con muones contra el cáncer en el CCTVal-USM o en cualquier otro lugar del planeta.
-
-**EL USO COMERCIAL, VENTA O CUALQUIER FORMA DE MONETIZACIÓN ESTÁ ESTRICTAMENTE PROHIBIDA**  
-sin mi permiso expreso por escrito. Esto incluye BeamLabStudio y **todos sus derivados**, forks o sucesores espirituales (incluyendo MuonSimViewer).
-
-Lo construí sin cobrar, durante época de exámenes, para la ciencia y para el CCTVal. Mantengámoslo así.
-
----
-
-## ¿Qué es BeamLabStudio?
-
-BeamLabStudio es una plataforma completa de computación científica que toma datos crudos de trayectorias de partículas (de Geant4, COMSOL o CERN ROOT) y los convierte en:
-
-- Visualizaciones 3D interactivas
-- Métricas cuantitativas de física de haces (posición de foco, radio RMS, área de envolvente, eficiencia, etc.)
-- Superficies ópticas reconstruidas (cuerpos de lente efectivos, caústicas)
-- Reportes listos para publicación (PDF + CSV + mallas OBJ + ecuaciones paramétricas)
-- Videos animados MP4 de la evolución del haz
-- **[Nuevo en v0.2.0]** Dosimetría biológica — deposición de energía de haces de muones en tejido
-
----
-
-## Novedades en v0.2.0
-
-### Simulador de Tejido Biológico (`src/simulation/`)
-El núcleo de esta actualización. BeamLabStudio ahora puede simular la propagación de haces de muones a través de capas de tejido biológico usando la fórmula de Bethe-Bloch:
-
-- **Motor Bethe-Bloch** (`BetheBlochEngine`): calcula la pérdida de energía media por unidad de longitud para muones en cualquier material
-- **Simulador de trayectorias** (`MuonTrackSimulator`): propaga trayectorias individuales a través de secuencias arbitrarias de tejido
-- **Registro de tejidos** (`TissueRegistry`): biblioteca configurable de materiales biológicos (músculo, hueso, agua, grasa...) con sus propiedades físicas
-- **Detector de planos de scoring** (`ScoringPlaneDetector`): registra fluencia, espectro de energía y dosis en planos arbitrarios
-
-### Nuevas Pestañas de la Interfaz
-- **Pestaña Simulador** (`SimulatorWidget`): UI interactiva para configurar geometría de tejido, correr simulaciones y visualizar perfiles de deposición de energía en tiempo real
-- **Pestaña de Explicaciones** (`InfoWidget`): documentación HTML renderizada de todas las fórmulas usadas en el pipeline de análisis — no más buscar en el código fuente qué significa r_rms
-
-### Nuevo Formato de Exportación
-- **Exportador de perfil de energía** (`EnergyProfileExporter`): exporta la curva de deposición de energía longitudinal (pico de Bragg) a CSV
-
-### Correcciones de Bugs
-- Inestabilidad numérica en `FocusDetector` cerca de configuraciones de haz degeneradas
-- Casos extremos en `SliceExtractor` para pasos de tiempo muy dispersos
-- Bug de acumulación en `FrameStatisticsEngine` cuando partículas se pierden antes del primer frame
-- `LensDiskBuilder` generando mallas no-manifold en ciertas geometrías de envolvente
-- `Geant4CsvImporter` fallando en archivos con conteo de columnas inconsistente
-- `AxisFrameResolver` seleccionando el eje de propagación incorrecto en haces casi-diagonales
-- `DatasetNormalizer` aplicando el factor de escala incorrecto con unidades de entrada ambiguas
-
----
-
-## Características Principales
-
-### 1. Importación Inteligente Multi-Formato
-- **COMSOL CSV**: Detecta automáticamente formato "ancho" y "largo". Maneja encabezados con acentos y espacios raros.
-- **Geant4 CSV**: Soporte completo para salida estándar de Geant4. Convierte automáticamente cm→m y ns→s.
-- **CERN ROOT**: Soporte nativo en Linux (flag opcional). En Windows convertir a CSV primero.
-
-### 2. Pipeline Completo de Análisis Físico
-- Detección automática del sistema de ejes o sobrescritura manual (`--axis x/y/z`)
-- Detección de foco: radio RMS, área de casco convexo, conteo de partículas
-- Cálculo de envolvente del haz con casco convexo
-- Reconstrucción de superficie caústica (paramétrica + malla)
-- Generación de cuerpo de lente efectivo (lofting con espesor realista)
-- Estadísticas frame por frame (activas, llegadas, perdidas, eficiencia, r_rms, sigma_x, sigma_z)
-
-### 3. Simulador Biológico
-- Pérdida de energía Bethe-Bloch a través de capas de tejido configurables
-- Propagación de trayectorias de muones con straggling estocástico
-- Planos de scoring para fluencia, espectro de energía y dosis
-- Visualización del pico de Bragg y exportación a CSV
-
-### 4. Interfaz Gráfica Profesional Qt6
-- Tema oscuro optimizado para sesiones largas
-- Visor 3D interactivo con VTK y slider de tiempo
-- Dashboards en tiempo real (curva de foco, área de envolvente, conteo, distribución radial)
-- Pestaña del simulador con gráficos de deposición de energía en vivo
-- Pestaña de documentación matemática con todas las fórmulas renderizadas
-- Exportación con un clic de todo (PDF, MP4, OBJ, CSV, PNG)
-
-### 5. CLI Headless para Automatización
 ```bash
-beamlab --input datos.csv --output resultados/corrida42 --caustic-points 128 --lens-layers 24
-```
-Perfecto para trabajos en cluster y procesamiento por lotes.
-
-### 6. Reproducibilidad Bit-Exacta
-Windows y Linux producen salida **bit-idéntica** (IEEE 754). Todo el pipeline de post-proceso está en C++20 puro con operaciones de punto flotante determinísticas y formato de salida `%.12e`.
-
-### 7. Formatos de Exportación
-| Formato | Contenido |
-|---------|-----------|
-| `.obj`  | Mallas 3D (resolución completa + vista previa decimada) |
-| `.csv`  | Tablas, perfiles de energía, vista previa de trayectorias |
-| `.png`  | Gráficos listos para publicación |
-| `.mp4`  | Animación de evolución del haz (requiere ffmpeg) |
-| `.pdf`  | Reporte multi-página con imágenes embebidas |
-| `.txt`  | Ecuaciones de superficie paramétrica |
-| `.json` | Metadata de la corrida y manifiesto |
-
----
-
-## Instalación y Compilación
-
-### Windows (Lo Más Fácil)
-
-**Opción A — Instalador (Recomendado)**
-1. Descargá `BeamLabStudio_Setup_Windows_x64.exe` desde Releases
-2. Doble clic → Siguiente → Siguiente → Instalar (sin derechos de administrador)
-3. La aplicación se abre automáticamente
-
-**Opción B — Portable**
-1. Descargá `BeamLabStudio_Portable_Windows_x64.exe`
-2. Extraé donde quieras (funciona en pendrive)
-3. Ejecutá `BeamLabStudio.exe`
-
-> **Advertencia de OneDrive**: NO ejecutes el instalador desde una carpeta sincronizada con OneDrive. Mové el archivo a `C:\Downloads\` primero.
-
-### Linux (Nativo — Recomendado para Desarrollo)
-
-**Prerrequisitos**
-
-Fedora/RHEL:
-```bash
-sudo dnf install cmake ninja gcc-c++ qt6-qtbase-devel qt6-qtcharts-devel \
-                 vtk-devel nlohmann-json-devel
-```
-
-Ubuntu/Debian:
-```bash
-sudo apt install cmake ninja-build g++ qt6-base-dev qt6-charts-dev \
-                 libvtk9-dev nlohmann-json3-dev
-```
-
-**Compilación**
-```bash
-git clone https://github.com/kegouro/BeamLabStudio.git
-cd BeamLabStudio
-
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel mesa-libGL-devel
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEAMLAB_ENABLE_QT_UI=ON
 cmake --build build -j$(nproc)
+./build/beamlab_ui
+```
+</details>
 
-./build/beamlab --help
+<details>
+<summary><b>🐧 Ubuntu 24.04+</b></summary>
+
+```bash
+sudo apt install cmake ninja-build g++ qt6-base-dev libgl1-mesa-dev
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEAMLAB_ENABLE_QT_UI=ON
+cmake --build build -j$(nproc)
+./build/beamlab_ui
+```
+</details>
+
+<details>
+<summary><b>🪟 Windows</b></summary>
+
+Install Qt6 via the online installer. Build with Visual Studio 2022 + Ninja:
+
+```powershell
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEAMLAB_ENABLE_QT_UI=ON
+cmake --build build -j$env:NUMBER_OF_PROCESSORS
+.\build\beamlab_ui.exe
+```
+
+**⚠️ Do not build inside OneDrive/Dropbox folders** — CMake will fail with path length limits.
+</details>
+
+### Install system-wide
+
+```bash
+cmake --install build --prefix /usr/local
+```
+
+### Testing
+
+[![Tests](https://img.shields.io/badge/tests-41%2F41-brightgreen?style=for-the-badge)](https://github.com/kegouro/BeamLabStudio/actions)
+
+```bash
+cmake -S . -B build -DBEAMLAB_ENABLE_QT_UI=ON
+cmake --build build --target beamlab_tests -j$(nproc)
+ctest --test-dir build --output-on-failure
+```
+
+**Tested modules:**
+- `FrameStatisticsEngine` — known moments, empty/single datasets
+- `BatchStatisticsEngine` — matches original engine (±1e-12)
+- `FocusDetector` — known parabola minimum, edge cases
+- `Geant4CsvImporter` — 15-column TSV import, streaming
+- `StoppingPowerEngine` — muon in water dEdx, energy clamp, MCS, dose
+- `SurfaceBuilder` — vertex/face counts, edge cases
+- `ISampleStorage` — 17 tests × 2 backends (InMemory + Sqlite)
+
+### Roadmap
+
+- [x] Core engine (import → statistics → focus → surfaces → export)
+- [x] Qt6 GUI with dark theme and High-DPI
+- [x] Exports: OBJ, PNG, MP4 (ffmpeg), PDF, CSV, Markdown
+- [x] BioSim: StoppingPowerEngine with Sternheimer + MCS + Vavilov
+- [x] Big Data: SQLite streaming backend, O(1) RAM for 20GB+ CSVs
+- [x] Native analysis pipeline (no bash/QProcess)
+- [x] Unit tests (GoogleTest, 41/41, ctest)
+- [x] GitHub Actions CI (Build & Test on push/PR)
+- [ ] Code signing for Windows
+- [ ] AppImage for Linux
+- [ ] CERN ROOT native importer (`-DBEAMLAB_ENABLE_ROOT=ON`)
+- [ ] GPU-accelerated 3D (compute shaders, not visualization)
+- [ ] Clinical dosimetry validation (NIST PSTAR comparison suite)
+
+---
+
+<a name="español"></a>
+## 🇨🇱 Español
+
+### ¿Qué es BeamLabStudio?
+
+BeamLabStudio es una estación de trabajo científica para **análisis de trayectorias de haces de
+muones** — la columna vertebral computacional de la investigación en terapia contra el cáncer
+con muones. Lee datos de stepping de simulaciones Monte Carlo Geant4 (CSV/TSV, 15 columnas)
+y produce un pipeline completo de análisis: marcos estadísticos, detección de foco del haz,
+superficies 3D de envolvente, exportación de geometría OBJ y visualizaciones listas para
+publicación (PNG, MP4, PDF).
+
+Es la reescritura profesional de [MuonSimViewer](https://github.com/kegouro/MuonSimViewer),
+un hack de fin de semana que creció hasta convertirse en una herramienta de investigación real.
+
+### Killer Features
+
+- **🚀 Big Data Streaming**: CSVs de 20GB+ sin OOM (SQLite WAL, O(1) RAM, progreso real)
+- **🔬 Pipeline de Física**: Estadísticas → Foco → Superficies → Exportación
+- **🫁 BioSim**: StoppingPowerEngine con Sternheimer + MCS + Vavilov, 55+ materiales
+- **🎨 UI Qt6**: Tema oscuro, High-DPI, visor 3D, dashboards en tiempo real
+- **📤 Exportaciones**: OBJ, PNG, MP4, PDF, CSV
+- **🖥️ CLI**: Automatización headless
+
+### Instalación
+
+```bash
+# Fedora
+sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel mesa-libGL-devel
+
+# Ubuntu 24.04+
+sudo apt install cmake ninja-build g++ qt6-base-dev libgl1-mesa-dev
+
+# Build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEAMLAB_ENABLE_QT_UI=ON
+cmake --build build -j$(nproc)
 ./build/beamlab_ui
 ```
 
 ---
 
-## Ejemplos de Uso
+## Créditos
 
-### CLI
-```bash
-# Análisis básico
-beamlab datos/comsol_run.csv --output outputs/corrida_2026-05-07
+**Autor:** José Labarca — Estudiante de Física, Universidad Santa María (Chile), CCTVal
 
-# Opciones avanzadas
-beamlab datos/geant4_muones.csv \
-  --output resultados/terapia_muones_v3 \
-  --axis z \
-  --reference-mode axial-bins \
-  --axial-bins 501 \
-  --caustic-points 128 \
-  --lens-layers 32
-```
+**Supervisor:** Dr. Claudio Dib — CCTVal, USM
 
-### GUI
-```bash
-beamlab_ui
-# Archivo → Abrir → CSV → Analizar → Exportar todo
-# O usá la pestaña Simulador para correr simulaciones de tejido Bethe-Bloch
-```
+**Predecesor:** [MuonSimViewer](https://github.com/kegouro/MuonSimViewer) — the weekend hack that started it all
+
+**Agradecimientos:** Al equipo CCTVal, a los que respondieron mis preguntas en StackOverflow,
+y a Claude (Anthropic) por la asistencia arquitectónica en el refactor.
+
+> *"If you want to go fast, go alone. If you want to go far, go together."*
+> — Proverbio africano
 
 ---
 
-## Arquitectura (Si el Repo Muere)
+<div align="center">
 
-1. **Modelo de datos**: `Trajectory`, `TrajectorySample`, `TrajectoryDataset`, `AxisFrame`, `BeamEnvelope`, `LensSurfaceModel`, `ParticleInfo`
-2. **Capa de importación**: `ComsolCsvImporter`, `Geant4CsvImporter`, `RootNativeImporter`
-3. **Capa de análisis**: `FrameStatisticsEngine` → `FocusCurveBuilder` → `FocusDetector` → `SliceExtractor` → `ConvexHullEnvelopeExtractor` → `SurfaceBuilder` → `LensDiskBuilder`
-4. **Capa de simulación**: `BetheBlochEngine` → `MuonTrackSimulator` → `TissueRegistry` / `TissueSlab` → `ScoringPlaneDetector`
-5. **Capa UI**: `MainWindow`, `Scene3DWidget`, `StatsDashboardWidget`, `SimulatorWidget`, `InfoWidget`, `ObjViewerWidget`
-6. **Capa de exportación**: `MeshExporter`, `AnalysisReportExporter`, `VisualizationDataExporter`, `ParametricSurfaceExporter`, `EnergyProfileExporter`
+### See you at KIT, October 2026 — José
 
----
+*BeamLabStudio · MIT License · Built unpaid during exam season*
 
-## Roadmap
-
-- [x] Motor de análisis central (Linux + Windows bit-equivalente)
-- [x] GUI Qt6 con visor 3D
-- [x] Exportación PDF + MP4 + OBJ
-- [x] Simulador de tejido biológico (Bethe-Bloch + tracking de muones)
-- [x] Pestaña de simulador interactivo
-- [x] Pestaña de documentación matemática con fórmulas renderizadas
-- [x] Exportación de perfil de energía (pico de Bragg)
-- [ ] GitHub Actions CI para releases automáticos (Linux + Windows cross-compile matrix)
-- [ ] Firma de código para Windows (eliminar advertencia SmartScreen)
-- [ ] AppImage para Linux
-- [ ] Soporte CERN ROOT en Windows (bloqueado por complejidad del cross-compile)
-- [ ] Tests de regresión bit-equivalencia Linux vs Windows en CI
-- [ ] Straggling de Landau completo en el simulador (actualmente aproximación gaussiana)
-
----
-
-## Licencia
-
-MIT — **con cláusula extra**: el uso comercial o cualquier forma de monetización está prohibido sin permiso expreso por escrito de José Labarca. Aplica a BeamLabStudio y toda obra derivada, incluyendo MuonSimViewer.
-
-Ver el archivo `LICENSE` en el repositorio.
-
----
-
-## Créditos y Agradecimientos
-
-- **Autor y Arquitecto**: José Labarca — Universidad Santa María / CCTVal (terapia con haces de muones contra el cáncer)
-- **Librerías**: Qt 6, VTK, nlohmann/json, CERN ROOT, MinGW-w64, NSIS
-- **Inspiración**: El grupo de muones del CCTVal que necesita buenas herramientas de análisis
-
----
-
-**Si usás BeamLabStudio en tu investigación, por favor citame y mandame un mail.**  
-Me encantaría saber que esta cosa que construí durante el infierno de exámenes está ayudando a ciencia real.
-
-**Nos vemos en Karlsruhe, octubre 2026.**
-
-— José
-
----
-
-*Última actualización: mayo 2026 — BeamLabStudio v0.2.0*
+</div>
