@@ -47,6 +47,9 @@ PipelineResult AnalysisPipeline::run(const std::string& csvPath,
     beamlab::io::Geant4CsvImporter importer;
     uint64_t imported = importer.importStreaming(csvPath, *storage, &progress);
 
+    // Build indices AFTER bulk import (5-10x faster than with maintenance during insert)
+    storage->finalizeStorage();
+
     if (progress.cancelled()) {
         result.success = false;
         result.errorMessage = "Cancelled";

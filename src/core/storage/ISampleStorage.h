@@ -38,6 +38,10 @@ public:
     virtual std::vector<beamlab::data::TrajectorySample> getAxialRange(
         double zMin, double zMax) const = 0;
 
+    // Called after bulk import to finalize storage (create indices, optimize).
+    // No-op for in-memory backends.
+    virtual void finalizeStorage() {}
+
     static std::unique_ptr<ISampleStorage> create(uint64_t estimatedFileSize);
 };
 

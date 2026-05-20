@@ -133,6 +133,22 @@ std::optional<std::int64_t> parseInteger(const std::string& token)
     return static_cast<std::int64_t>(*value);
 }
 
+// Fast numeric parsing for high-throughput import.
+// Skips string copies and validation that Geant4 outputs don't need.
+inline bool fastParseDouble(const char* s, double& out)
+{
+    char* end = nullptr;
+    out = std::strtod(s, &end);
+    return end != s && std::isfinite(out);
+}
+
+inline bool fastParseInt64(const char* s, int64_t& out)
+{
+    char* end = nullptr;
+    out = std::strtoll(s, &end, 10);
+    return end != s;
+}
+
 bool looksLikeGeant4Header(const std::string& line)
 {
     return Geant4HeaderRecognizer::looksLikeHeader(line);
@@ -551,11 +567,12 @@ uint64_t Geant4CsvImporter::importStreaming(
     std::vector<std::string> header;
     Geant4Columns columns{};
 
-    // Find header
+    // Find header and cache delimiter
+    char delimiter = '\t';  // default for Geant4 stepping data
     while (std::getline(input, line)) {
         if (looksLikeGeant4Header(line)) {
-            auto delim = DelimiterDetector::detect(line);
-            header = splitLine(line, delim);
+            delimiter = DelimiterDetector::detect(line);
+            header = splitLine(line, delimiter);
             columns = detectColumns(header);
             break;
         }
@@ -570,24 +587,25 @@ uint64_t Geant4CsvImporter::importStreaming(
         ++line_number;
         if (line.empty() || line[0] == '#') continue;
 
-        const auto delim = DelimiterDetector::detect(line);
-        const auto tokens = splitLine(line, delim);
+        const auto tokens = splitLine(line, delimiter);  // cached delimiter
         if (tokens.size() < 15) continue;
 
-        const auto x_cm = parseDouble(tokens[0]);
-        const auto y_cm = parseDouble(tokens[1]);
-        const auto z_cm = parseDouble(tokens[2]);
-        const auto edep = parseDouble(tokens[3]);
-        const auto kine = parseDouble(tokens[4]);
-        const auto time_ns = parseDouble(tokens[8]);
-        const auto track_id = parseInteger(tokens[9]);
-        const auto event_id = parseInteger(tokens[11]);
-        const auto pdg_val = parseInteger(tokens[12]);
+        double x_cm_v=0, y_cm_v=0, z_cm_v=0, edep_v=0, kine_v=0, time_ns_v=0;
+        int64_t track_id_v, event_id_v, pdg_v;
 
-        if (!x_cm || !y_cm || !z_cm || !time_ns || !track_id || !event_id || !pdg_val)
+        if (!fastParseDouble(tokens[0].c_str(), x_cm_v) ||
+            !fastParseDouble(tokens[1].c_str(), y_cm_v) ||
+            !fastParseDouble(tokens[2].c_str(), z_cm_v) ||
+            !fastParseDouble(tokens[8].c_str(), time_ns_v) ||
+            !fastParseInt64(tokens[9].c_str(), track_id_v) ||
+            !fastParseInt64(tokens[11].c_str(), event_id_v) ||
+            !fastParseInt64(tokens[12].c_str(), pdg_v))
             continue;
 
-        std::string trajId = std::to_string(*event_id) + "_" + std::to_string(*track_id);
+        fastParseDouble(tokens[3].c_str(), edep_v);   // optional
+        fastParseDouble(tokens[4].c_str(), kine_v);   // optional
+
+        std::string trajId = std::to_string(event_id_v) + "_" + std::to_string(track_id_v);
         if (trajId != currentTrajId) {
             if (!currentTrajId.empty()) storage.endTrajectory();
             storage.beginTrajectory(trajId);
@@ -595,16 +613,16 @@ uint64_t Geant4CsvImporter::importStreaming(
         }
 
         beamlab::data::TrajectorySample s{};
-        s.position_m = {*x_cm * 0.01, *y_cm * 0.01, *z_cm * 0.01};
-        s.time_s = *time_ns * 1.0e-9;
-        s.edep_MeV = edep.value_or(0.0);
-        s.edep_eV = s.edep_MeV * 1.0e6;
-        s.kinE_MeV = kine.value_or(0.0);
-        s.momentum_MeV = {
-            tokens.size() > 5 ? parseDouble(tokens[5]).value_or(0.0) : 0.0,
-            tokens.size() > 6 ? parseDouble(tokens[6]).value_or(0.0) : 0.0,
-            tokens.size() > 7 ? parseDouble(tokens[7]).value_or(0.0) : 0.0
-        };
+        s.position_m = {x_cm_v * 0.01, y_cm_v * 0.01, z_cm_v * 0.01};
+        s.time_s = time_ns_v * 1.0e-9;
+        s.edep_MeV = edep_v;
+        s.edep_eV = edep_v * 1.0e6;
+        s.kinE_MeV = kine_v;
+        { double mx=0, my=0, mz=0;
+          fastParseDouble(tokens[5].c_str(), mx);
+          fastParseDouble(tokens[6].c_str(), my);
+          fastParseDouble(tokens[7].c_str(), mz);
+          s.momentum_MeV = {mx, my, mz}; }
         storage.addSample(s);
         ++sampleCount;
 

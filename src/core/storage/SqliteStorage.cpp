@@ -17,8 +17,9 @@ SqliteStorage::SqliteStorage(const std::string& dbPath)
         throw std::runtime_error("Failed to open SQLite database: " + dbPath_);
     }
     exec("PRAGMA journal_mode=WAL");
-    exec("PRAGMA synchronous=NORMAL");
-    exec("PRAGMA cache_size=-64000"); // 64 MB page cache
+    exec("PRAGMA synchronous=OFF");         // Fast bulk import — restored in finalizeIndices()
+    exec("PRAGMA cache_size=-64000");       // 64 MB page cache
+    exec("PRAGMA locking_mode=EXCLUSIVE");  // Single writer, no lock overhead
     ensureTable();
 }
 
@@ -44,6 +45,13 @@ void SqliteStorage::ensureTable()
          " momz_MeV REAL NOT NULL DEFAULT 0.0,"
          " time_s REAL NOT NULL DEFAULT 0.0,"
          " dose_Gy REAL NOT NULL DEFAULT 0.0)");
+    // Indices created AFTER bulk import via finalizeIndices()
+}
+
+void SqliteStorage::finalizeIndices()
+{
+    exec("PRAGMA synchronous=NORMAL");
+    exec("PRAGMA locking_mode=NORMAL");
     exec("CREATE INDEX IF NOT EXISTS idx_traj ON samples(trajectory_id, step_index)");
     exec("CREATE INDEX IF NOT EXISTS idx_axial ON samples(z_m)");
 }

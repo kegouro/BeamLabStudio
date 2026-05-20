@@ -28,6 +28,11 @@ public:
     void addSample(const beamlab::data::TrajectorySample& sample) override;
     void endTrajectory() override;
     void flush() override;
+    void finalizeStorage() override { finalizeIndices(); }
+
+    // Create indices after bulk import. Call once after all data is loaded.
+    // This avoids index maintenance overhead during insertion (5-10x faster).
+    void finalizeIndices();
 
     uint64_t totalSampleCount() const override;
     uint64_t trajectoryCount() const override;
@@ -51,7 +56,7 @@ private:
     std::string dbPath_;
     std::string currentTrajectoryId_;
     uint64_t pendingCount_{0};
-    static constexpr uint64_t kFlushBatchSize = 50000;
+    static constexpr uint64_t kFlushBatchSize = 100000;
 };
 
 } // namespace beamlab::core
