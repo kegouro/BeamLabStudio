@@ -408,7 +408,15 @@ ExportResult AnalysisReportExporter::exportMarkdownSummary(
     output << "### Visualization previews\n\n";
     output << "- `" << manifest.trajectories_preview_csv << "`\n";
     output << "- `" << manifest.focal_slice_points_csv << "`\n";
-    output << "- `" << manifest.envelope_rings_csv << "`\n";
+    output << "- `" << manifest.envelope_rings_csv << "`\n\n";
+
+    output << "## Physics Model Limitations\n\n";
+    output << "- **Straggling model:** gaussian\n";
+    output << "- **Density correction (Sternheimer):** yes\n";
+    output << "- **Shell correction:** no\n";
+    output << "- **Validity range:** βγ > 0.1, E < ~100 GeV for muons\n";
+    output << "- **Warning:** These results are for research purposes. "
+              "Not validated for clinical use.\n";
 
     result.success = true;
     result.output_path = manifest.analysis_summary_md;

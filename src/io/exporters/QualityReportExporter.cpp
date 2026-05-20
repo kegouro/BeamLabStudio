@@ -139,9 +139,6 @@ ExportResult QualityReportExporter::exportMarkdown(
     output << "## Verdict\n\n";
     output << "**" << report.verdict << "**\n\n";
 
-    output << "**Warning:** Straggling model: Gaussian approximation. "
-              "For clinical dosimetry, Vavilov/Landau straggling is recommended.\n\n";
-
     output << "| Severity | Count |\n";
     output << "|---|---:|\n";
     output << "| Info | " << report.info_count << " |\n";
@@ -161,6 +158,14 @@ ExportResult QualityReportExporter::exportMarkdown(
                << " | " << issue.suggestion
                << " |\n";
     }
+
+    output << "\n## Physics Model Limitations\n\n";
+    output << "- **Straggling model:** gaussian\n";
+    output << "- **Density correction (Sternheimer):** yes\n";
+    output << "- **Shell correction:** no\n";
+    output << "- **Validity range:** βγ > 0.1, E < ~100 GeV for muons\n";
+    output << "- **Warning:** These results are for research purposes. "
+              "Not validated for clinical use.\n";
 
     result.success = true;
     result.output_path = output_path;
