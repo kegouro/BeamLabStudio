@@ -92,8 +92,8 @@ beamlab::data::LensSurfaceModel SurfaceBuilder::build(
             const std::size_t c = next + i;
             const std::size_t d = next + i_next;
 
-            surface.mesh.faces.push_back({a, c, b});
-            surface.mesh.faces.push_back({b, c, d});
+            surface.mesh.faces.push_back({a, b, c});
+            surface.mesh.faces.push_back({b, d, c});
         }
     }
 
