@@ -107,6 +107,8 @@ CommandLineOptions CommandLineParser::parse(int argc, char** argv)
             options.preview_samples_per_trajectory = parseSize(requireValue(i, argc, argv, arg), arg);
         } else if (arg == "--preview-slice-points") {
             options.preview_slice_point_count = parseSize(requireValue(i, argc, argv, arg), arg);
+        } else if (arg == "--stream") {
+            options.use_streaming = true;
         } else if (!arg.empty() && arg.front() == '-') {
             throw std::runtime_error("Opción desconocida: " + arg);
         } else {
@@ -146,6 +148,8 @@ void CommandLineParser::printHelp(const std::string& executable_name)
         << "      --preview-trajectories <N>       Trayectorias máximas en preview\n"
         << "      --preview-samples-per-trajectory <N>  Muestras máximas por trayectoria\n"
         << "      --preview-slice-points <N>       Puntos máximos del slice focal\n\n"
+        << "Modo de procesamiento:\n"
+        << "      --stream                         Usar importación streaming (SqliteStorage, O(1) RAM)\n\n"
         << "Ayuda:\n"
         << "  -h, --help\n\n";
 }

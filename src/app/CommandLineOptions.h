@@ -35,6 +35,7 @@ struct CommandLineOptions {
     bool export_energy_profile{true};   // export step-by-step energy deposition CSV
     bool export_track_summary{true};    // export per-track energy summary CSV
     bool detect_scoring_planes{true};   // auto-detect entry/exit/counter planes
+    bool use_streaming{false};          // use streaming import (SqliteStorage, O(1) RAM)
 };
 
 class CommandLineParser {

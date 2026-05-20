@@ -35,6 +35,9 @@
 #include "io/importers/ComsolCsvImporter.h"
 #include "io/importers/DelimitedTableImporter.h"
 #include "io/importers/Geant4CsvImporter.h"
+#include "core/storage/ISampleStorage.h"
+#include "analysis/statistics/BatchStatisticsEngine.h"
+#include "data/model/AxisFrame.h"
 #ifdef BEAMLAB_ENABLE_ROOT
 #include "io/importers/RootNativeImporter.h"
 #endif
@@ -354,6 +357,25 @@ int ApplicationBootstrap::run(int argc, char** argv)
 
         std::cout << "BeamLabStudio bootstrap OK\n";
         std::cout << "Output directory: " << manifest.output_root << '\n';
+
+        if (options.use_streaming) {
+            // ── Streaming path: importStreaming() → SqliteStorage → BatchStatisticsEngine
+            std::cout << "Using streaming import (SqliteStorage, O(1) RAM)\n";
+            auto storage = beamlab::core::ISampleStorage::create(100ULL*1024*1024);
+            beamlab::io::Geant4CsvImporter importer;
+            uint64_t imported = importer.importStreaming(options.input_file, *storage);
+            storage->finalizeStorage();
+            std::cout << "Imported " << imported << " samples, "
+                      << storage->trajectoryCount() << " trajectories\n";
+
+            if (imported > 0) {
+                beamlab::data::AxisFrame ax = {{0,0,0},{0,0,1},{1,0,0},{0,1,0}};
+                beamlab::analysis::BatchStatisticsEngine engine;
+                auto stats = engine.compute(*storage, ax);
+                std::cout << "Statistics: " << stats.size() << " axial frames\n";
+            }
+            return 0;
+        }
 
         beamlab::data::TrajectoryDataset dataset{};
 
