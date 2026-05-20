@@ -40,7 +40,7 @@
 #endif
 #include "io/normalization/DatasetNormalizer.h"
 #include "simulation/scoring/ScoringPlane.h"
-#include "simulation/scoring/ScoringPlaneDetector.h"
+#include "biosim/core/ScoringPlaneDetector.h"
 
 #include <algorithm>
 #include <cmath>
@@ -767,7 +767,7 @@ int ApplicationBootstrap::run(int argc, char** argv)
         }
 
         if (options.detect_scoring_planes) {
-            beamlab::simulation::ScoringPlaneDetector sp_detector{};
+            beamlab::biosim::ScoringPlaneDetector sp_detector{};
             const auto scoring_planes = sp_detector.detect(dataset);
 
             const auto sp_path =
@@ -779,8 +779,8 @@ int ApplicationBootstrap::run(int argc, char** argv)
             std::cout << "\n=== Detected scoring planes ===\n";
             for (const auto& plane : scoring_planes) {
                 const char* role = "counter";
-                if (plane.role == beamlab::simulation::ScoringPlane::Role::Entry) role = "entry";
-                if (plane.role == beamlab::simulation::ScoringPlane::Role::Exit)  role = "exit";
+                if (plane.role == beamlab::biosim::ScoringPlane::Role::Entry) role = "entry";
+                if (plane.role == beamlab::biosim::ScoringPlane::Role::Exit)  role = "exit";
                 std::cout << plane.id << "  role=" << role
                           << "  axial=" << std::scientific << std::setprecision(4)
                           << plane.axial_position_m << " m\n";

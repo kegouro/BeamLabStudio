@@ -3,7 +3,7 @@
 #include <string>
 #include <cstddef>
 
-namespace beamlab::simulation {
+namespace beamlab::biosim {
 
 // A virtual scoring plane perpendicular to the longitudinal beam axis.
 // Can act as:

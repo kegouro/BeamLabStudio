@@ -18,7 +18,7 @@
 //!@formula s_mid = (s_min + s_max) / 2
 //!@math-end
 
-#include "simulation/scoring/ScoringPlaneDetector.h"
+#include "biosim/core/ScoringPlaneDetector.h"
 
 #include <algorithm>
 #include <cmath>

@@ -67,6 +67,7 @@ add_library(beamlab_core STATIC
     # Simulation subsystem (BetheBloch kept for now, will migrate in step 4)
     src/simulation/physics/BetheBlochEngine.cpp
     src/simulation/physics/MuonTrackSimulator.cpp
+    # Scoring plane detection (algorithm, no Qt dependency)
     src/simulation/scoring/ScoringPlaneDetector.cpp
     # Energy exporters
     src/io/exporters/EnergyProfileExporter.cpp

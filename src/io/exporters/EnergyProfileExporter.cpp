@@ -136,7 +136,7 @@ ExportResult EnergyProfileExporter::exportTrackSummary(
 
 ExportResult EnergyProfileExporter::exportScoringPlanes(
     const beamlab::data::TrajectoryDataset& dataset,
-    const std::vector<beamlab::simulation::ScoringPlane>& planes,
+    const std::vector<beamlab::biosim::ScoringPlane>& planes,
     const std::string& output_path) const
 {
     ExportResult result{};
@@ -190,9 +190,9 @@ ExportResult EnergyProfileExporter::exportScoringPlanes(
 
     for (const auto& plane : scored) {
         const char* role_str = "counter";
-        if (plane.role == beamlab::simulation::ScoringPlane::Role::Entry) {
+        if (plane.role == beamlab::biosim::ScoringPlane::Role::Entry) {
             role_str = "entry";
-        } else if (plane.role == beamlab::simulation::ScoringPlane::Role::Exit) {
+        } else if (plane.role == beamlab::biosim::ScoringPlane::Role::Exit) {
             role_str = "exit";
         }
 

@@ -2,7 +2,7 @@
 
 #include "data/model/TrajectoryDataset.h"
 #include "io/common/ExportResult.h"
-#include "simulation/scoring/ScoringPlane.h"
+#include "biosim/core/ScoringPlane.h"
 #include "simulation/tissue/TissueSlab.h"
 
 #include <string>
@@ -30,7 +30,7 @@ public:
     // Scoring plane report: crossing count and mean energy at each plane.
     [[nodiscard]] ExportResult exportScoringPlanes(
         const beamlab::data::TrajectoryDataset& dataset,
-        const std::vector<beamlab::simulation::ScoringPlane>& planes,
+        const std::vector<beamlab::biosim::ScoringPlane>& planes,
         const std::string& output_path) const;
 
     // Tissue slab dose summary.
