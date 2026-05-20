@@ -8,6 +8,8 @@
 
 #include "ui/qt/presenters/AnalysisPresenter.h"
 
+#include "ui/qt/presenters/AnalysisPresenter.h"
+
 class QAction;
 class QColor;
 class QCloseEvent;
