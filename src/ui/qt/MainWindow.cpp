@@ -8,6 +8,7 @@
 #include "ui/qt/RunDashboardWidget.h"
 #include "ui/qt/Scene3DWidget.h"
 #include "ui/qt/StatsDashboardWidget.h"
+#include "ui/qt/shell/NavigationRail.h"
 #include "biosim/ui/qt/BioSimWidget.h"
 
 #include <QAction>
@@ -24,6 +25,7 @@
 #include <QCheckBox>
 #include <QDir>
 #include <QDirIterator>
+#include <QDebug>
 #include <QDropEvent>
 #include <QEventLoop>
 #include <QFile>
@@ -1015,7 +1017,27 @@ void MainWindow::buildUi()
         table->setSortingEnabled(false);
     }
 
-    tabs_->addTab(dashboard_, "Dashboard");
+    // ── NavigationRail + QStackedWidget replace the old 14-tab QTabWidget ──────
+    // The page widgets are still constructed below (and parented to tabs_, which
+    // is kept alive as their owner) but are now grouped into 6 sections. Pages
+    // that don't map to a section (statistics, individual-trajectories 3D, the
+    // OBJ-viewer-only pages, the CSV tables) are still built but simply not added
+    // to the rail; they remain owned by tabs_ so nothing leaks or dangles.
+    nav_rail_ = new NavigationRail;
+    section_stack_ = new QStackedWidget;
+
+    auto addSection = [&](const QString& glyph, const QString& label, QWidget* page) {
+        const int navIdx = nav_rail_->addItem(glyph, label);
+        const int stackIdx = section_stack_->addWidget(page);
+        Q_ASSERT(navIdx == stackIdx);
+        return navIdx;
+    };
+
+    nav_rail_->addGroupHeader("ANÁLISIS");
+    addSection("▦", "Overview", dashboard_);
+    scene_section_index_ = addSection("◉", "Scene 3D", combined_page_);
+    addSection("◔", "Plots", buildPlotsSection());
+    addSection("▤", "Data", buildDataSection());
 
     auto* statistics_page = new QWidget(tabs_);
     statistics_page->setObjectName("StatisticsPage");
@@ -1109,11 +1131,12 @@ void MainWindow::buildUi()
         set_statistics_details_visible(false);
     }, Qt::QueuedConnection);
 
-    tabs_->addTab(statistics_page, "Statistics");
-    tabs_->addTab(combined_page_, "Combined 3D");
-    tabs_->addTab(trajectory_plot_page_, "Individual trajectories 2D");
+    // statistics_page, combined_page_ and trajectory_plot_page_ are constructed
+    // above; combined_page_ is exposed via the "Scene 3D" section. The others are
+    // owned by tabs_ but not surfaced in the rail this task (Task B6 will fold the
+    // plot/statistics pages into the Plots/Data sections).
 
-    // ── Individual trajectories 3D tab with trajectory count control ──────────
+    // ── Individual trajectories 3D page with trajectory count control ─────────
     {
         auto* traj3d_page = new QWidget(tabs_);
         auto* traj3d_layout = new QVBoxLayout(traj3d_page);
@@ -1205,22 +1228,29 @@ void MainWindow::buildUi()
         obj_axes_checks_.push_back(axes3d);
         obj_measure_guides_checks_.push_back(meas3d);
 
-        tabs_->addTab(traj3d_page, "Individual trajectories 3D");
+        // traj3d_page is created with parent tabs_; it stays alive but is not
+        // surfaced in the rail this task.
+        (void)traj3d_page;
     }
-    tabs_->addTab(focal_slice_plot_page_, "Focal slice");
-    tabs_->addTab(envelope_plot_page_, "Focal envelope rings");
-    tabs_->addTab(make_obj_viewer_page(caustic_obj_viewer_), "Focal envelope proxy");
-    tabs_->addTab(make_obj_viewer_page(lens_obj_viewer_), "Effective lens");
-    tabs_->addTab(trajectories_table_, "Individual trajectories CSV");
-    tabs_->addTab(focal_slice_table_, "Focal slice CSV");
-    tabs_->addTab(envelope_table_, "Focal envelope rings CSV");
+    // The OBJ-viewer-only pages must still be constructed (they wire up the axes /
+    // measure-guide checkboxes and camera presets) even though they are not part
+    // of any rail section this task. make_obj_viewer_page parents them to tabs_,
+    // so they stay alive without being shown.
+    (void)make_obj_viewer_page(caustic_obj_viewer_);
+    (void)make_obj_viewer_page(lens_obj_viewer_);
 
 
     bio_sim_widget_ = new beamlab::biosim::BioSimWidget();
-    tabs_->addTab(bio_sim_widget_, "BioSim");
 
     info_widget_ = new InfoWidget();
-    tabs_->addTab(info_widget_, "Info");
+
+    nav_rail_->addGroupHeader("SIMULACIÓN");
+    addSection("⚛", "BioSim", bio_sim_widget_);
+    nav_rail_->addStretch();
+    addSection("ⓘ", "Info & Docs", info_widget_);
+
+    connect(nav_rail_, &NavigationRail::sectionChanged,
+            section_stack_, &QStackedWidget::setCurrentIndex);
 
     log_panel_ = new QWidget(central);
     auto* log_layout = new QVBoxLayout(log_panel_);
@@ -1259,6 +1289,13 @@ void MainWindow::buildUi()
 
     // ── Native analysis pipeline (replaces bash/QProcess) ──────────────────
     analysisPresenter_ = new AnalysisPresenter(this);
+
+    connect(analysisPresenter_, &AnalysisPresenter::analysisStarted, this, [this]() {
+        if (analysis_activity_timer_ != nullptr) {
+            analysis_activity_timer_->start(600);
+        }
+    });
+
     connect(analysisPresenter_, &AnalysisPresenter::logLineReady, this, [this](const QString& line) {
         if (analysis_log_ == nullptr) return;
         constexpr int MAX_LOG_LINES = 10000;
@@ -1272,10 +1309,60 @@ void MainWindow::buildUi()
         analysis_log_->appendPlainText(line);
     });
     connect(analysisPresenter_, &AnalysisPresenter::analysisFinished, this,
-        [this](bool success, const QString& message) {
+        [this](bool success, const QString& message, const QString& outputDir) {
+            qDebug() << "[MainWindow] analysisFinished received. Success:" << success
+                     << "OutputDir:" << outputDir;
             status_label_->setText(message);
+            analysis_activity_timer_->stop();
+            analysis_activity_label_->clear();
             if (!success) {
                 QMessageBox::warning(this, "Analysis", message);
+                return;
+            }
+            if (outputDir.isEmpty()) {
+                qDebug() << "[MainWindow] Empty outputDir — nothing to load";
+                return;
+            }
+
+            // Try multiple manifest locations
+            const QStringList candidates = {
+                outputDir + "/visualization/visualization_manifest.json",
+                outputDir + "/visualization_manifest.json",
+                outputDir + "/manifest.json",
+            };
+            QString manifestPath;
+            for (const auto& c : candidates) {
+                qDebug() << "[MainWindow] Checking manifest:" << c
+                         << "exists=" << QFile::exists(c);
+                if (QFile::exists(c)) {
+                    manifestPath = c;
+                    break;
+                }
+            }
+
+            if (!manifestPath.isEmpty()) {
+                qDebug() << "[MainWindow] Loading manifest:" << manifestPath;
+                loadManifest(manifestPath);
+            } else {
+                qDebug() << "[MainWindow] No manifest found, trying fallback load";
+                // List files in output dir for debugging
+                QDir outDir(outputDir);
+                if (outDir.exists()) {
+                    qDebug() << "[MainWindow] Output dir contents:";
+                    for (const auto& entry : outDir.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot)) {
+                        qDebug() << "  " << entry.filePath();
+                    }
+                }
+                tryFallbackLoad(outputDir);
+            }
+        });
+
+    // Connect progress updates
+    connect(analysisPresenter_, &AnalysisPresenter::progressUpdated, this,
+        [this](int percent, const QString& stage) {
+            qDebug() << "[MainWindow] Progress:" << percent << "%" << stage;
+            if (status_label_) {
+                status_label_->setText(QString("Analyzing: %1% - %2").arg(percent).arg(stage));
             }
         });
 
@@ -1287,8 +1374,15 @@ void MainWindow::buildUi()
         ++phase;
     });
 
+    auto* workspace_body = new QWidget;
+    auto* body_layout = new QHBoxLayout(workspace_body);
+    body_layout->setContentsMargins(0, 0, 0, 0);
+    body_layout->setSpacing(0);
+    body_layout->addWidget(nav_rail_);
+    body_layout->addWidget(section_stack_, 1);
+
     root_layout->addWidget(top_bar_widget);
-    root_layout->addWidget(tabs_, 1);
+    root_layout->addWidget(workspace_body, 1);
     root_layout->addWidget(log_panel_, 0);
 
     central_stack_->addWidget(welcome_page);
@@ -1394,7 +1488,7 @@ void MainWindow::buildUi()
     );
 
     connect(camera_reset_button, &QPushButton::clicked, this, [this]() {
-        combined_scene_viewer_->resetCamera();
+        combined_scene_viewer_->frameLongestAxisHorizontally();
     });
 
     connect(camera_iso_button, &QPushButton::clicked, this, [this]() {
@@ -1413,6 +1507,8 @@ void MainWindow::buildUi()
         combined_scene_viewer_->setViewPreset(3);
     });
 
+    // TODO(B6): inert — tabs_ is no longer in a layout. Rewire this plot
+    // auto-fit (fitSceneInView) to the Plots-section selector in Task B6.
     connect(tabs_, &QTabWidget::currentChanged, this, [this](int) {
         QMetaObject::invokeMethod(this, [this]() {
             QWidget* current = tabs_->currentWidget();
@@ -1444,6 +1540,9 @@ void MainWindow::buildUi()
     restoreSettings();
     showWelcomeScreen();
 }
+
+QWidget* MainWindow::buildPlotsSection() { return new QWidget; }  // TODO Task B6
+QWidget* MainWindow::buildDataSection()  { return new QWidget; }  // TODO Task B6
 
 QString MainWindow::readTextFile(const QString& path) const
 {
@@ -1846,8 +1945,84 @@ void MainWindow::dropEvent(QDropEvent* event)
     event->acceptProposedAction();
 }
 
+void MainWindow::tryFallbackLoad(const QString& outputDir)
+{
+    qDebug() << "[MainWindow::tryFallbackLoad] Attempting fallback load from:" << outputDir;
+    if (!analysis_log_) return;
+    analysis_log_->appendPlainText("Attempting fallback load from: " + outputDir);
+
+    // List files found
+    QStringList foundCsvs;
+    QStringList foundObjs;
+    QDir outDir(outputDir);
+    if (!outDir.exists()) {
+        analysis_log_->appendPlainText("ERROR: Output directory does not exist: " + outputDir);
+        return;
+    }
+
+    QDirIterator it(outputDir, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QString f = it.next();
+        if (f.endsWith(".csv")) foundCsvs.append(f);
+        if (f.endsWith(".obj")) foundObjs.append(f);
+    }
+
+    analysis_log_->appendPlainText(QString("Found %1 CSV files, %2 OBJ files")
+        .arg(foundCsvs.size()).arg(foundObjs.size()));
+
+    if (foundObjs.isEmpty()) {
+        analysis_log_->appendPlainText("Analysis succeeded but no OBJ/visualization files were produced.");
+        analysis_log_->appendPlainText("Output directory: " + outputDir);
+        return;
+    }
+
+    // Try to load the first OBJ into the 3D scene as a minimal visualisation
+    if (combined_scene_viewer_) {
+        combined_scene_viewer_->clearLayers();
+        for (const auto& objPath : foundObjs) {
+            QFileInfo fi(objPath);
+            QString name = fi.baseName();
+            if (name == "beam_caustic_surface") {
+                combined_scene_viewer_->addObjLayer("Caustic", objPath, QColor(255, 100, 50));
+            } else if (name == "effective_lens_disk") {
+                combined_scene_viewer_->addObjLayer("Lens Disk", objPath, QColor(50, 180, 255));
+            } else if (name == "trajectories_preview") {
+                combined_scene_viewer_->addObjLayer("Trajectories", objPath, QColor(200, 200, 200));
+            } else {
+                combined_scene_viewer_->addObjLayer(name, objPath, QColor(100, 200, 100));
+            }
+        }
+        combined_scene_viewer_->setAxesVisible(true);
+        analysis_log_->appendPlainText("Loaded OBJ files into 3D scene.");
+    }
+
+    // Try to load CSVs into the run dashboard
+    if (dashboard_) {
+        QString trajCsv = outputDir + "/visualization/trajectories_preview.csv";
+        QString focalCsv = outputDir + "/visualization/focal_slice_points.csv";
+        QString envCsv = outputDir + "/visualization/envelope_rings.csv";
+        QString causticObj = outputDir + "/geometry/beam_caustic_surface.obj";
+        QString lensObj = outputDir + "/geometry/effective_lens_disk.obj";
+
+        if (QFile::exists(trajCsv)) {
+            dashboard_->loadFromManifest("", trajCsv, focalCsv, envCsv, causticObj, lensObj);
+            analysis_log_->appendPlainText("Loaded CSV data into run dashboard.");
+        }
+    }
+
+    // Try to load stats
+    if (statistics_dashboard_) {
+        QString focusCsv = outputDir + "/tables/focus_curve.csv";
+        if (QFile::exists(focusCsv)) {
+            statistics_dashboard_->loadRunFromManifest(focusCsv);
+            analysis_log_->appendPlainText("Loaded focus curve into statistics dashboard.");
+        }
+    }
+}
+
 void MainWindow::loadManifest(const QString& path)
 {
+    qDebug() << "[loadManifest] Opening:" << path;
     const auto text = readTextFile(path);
 
     if (text.isEmpty()) {
@@ -1858,11 +2033,13 @@ void MainWindow::loadManifest(const QString& path)
     QJsonParseError parse_error;
     QJsonDocument doc = QJsonDocument::fromJson(text.toUtf8(), &parse_error);
     if (parse_error.error != QJsonParseError::NoError || !doc.isObject()) {
+        qDebug() << "[loadManifest] Invalid JSON:" << parse_error.errorString();
         QMessageBox::warning(this, "Invalid manifest",
             QString("The manifest file is not valid JSON: %1").arg(parse_error.errorString()));
         return;
     }
     QJsonObject obj = doc.object();
+    qDebug() << "[loadManifest] Root keys:" << obj.keys();
 
     current_manifest_path_ = path;
     QFileInfo manifest_info(path);
@@ -1870,7 +2047,15 @@ void MainWindow::loadManifest(const QString& path)
     run_dir.cdUp();
     current_run_dir_ = run_dir.absolutePath();
 
-    auto manifestVal = [&](const QString& key) { return obj.value(key).toString(); };
+    // Support both flat keys and nested "files" object
+    QJsonObject fileObj = obj;
+    if (obj.contains("files") && obj["files"].isObject()) {
+        fileObj = obj["files"].toObject();
+    }
+
+    auto manifestVal = [&](const QString& key) {
+        return fileObj.value(key).toString();
+    };
 
     const QString trajectories_csv_key = manifestVal("trajectories_preview_csv");
     if (trajectories_csv_key.isEmpty()) {
@@ -2067,7 +2252,7 @@ void MainWindow::loadManifest(const QString& path)
     trajectory_count_spin_->setEnabled(has_trajectory_control);
 
     if (has_trajectory_control) {
-        const int default_visible = trajectory_count / 2;
+        const int default_visible = trajectory_count;
         trajectory_count_label_->setText(
             QString("Visible trajectories (0-%1)").arg(trajectory_count)
         );
@@ -2097,7 +2282,7 @@ void MainWindow::loadManifest(const QString& path)
     trajectory_parameter_value_label_->setText("1.00");
     combined_scene_viewer_->setTrajectoryParameter(1.0);
     updateCombinedDisplayMode();
-    combined_scene_viewer_->resetCamera();
+    combined_scene_viewer_->frameLongestAxisHorizontally();
 
     loadTablePreview(trajectories_csv, trajectories_table_, 500);
     loadTablePreview(focal_slice_csv, focal_slice_table_, 500);
@@ -2134,8 +2319,10 @@ void MainWindow::loadManifest(const QString& path)
     );
 
     showWorkspace();
-    tabs_->setCurrentIndex(1);
+    section_stack_->setCurrentIndex(scene_section_index_);  // Scene 3D
+    nav_rail_->setCurrentIndex(scene_section_index_);
     addToRecentRuns(path);
+    qDebug() << "[loadManifest] Successfully loaded.";
 }
 
 void MainWindow::updateCombinedDisplayMode()
@@ -2301,13 +2488,16 @@ void MainWindow::exportAllArtifacts()
 
     // MP4 export needs combined scene setup
     if (combined_scene_viewer_ != nullptr) {
-        const int old_tab = tabs_ != nullptr ? tabs_->currentIndex() : -1;
+        const int old_section = section_stack_ != nullptr ? section_stack_->currentIndex() : -1;
         const int old_mode = beam_display_mode_ != nullptr ? beam_display_mode_->currentIndex() : 0;
         const int old_lambda = trajectory_parameter_slider_ != nullptr
             ? trajectory_parameter_slider_->value() : 100;
 
-        if (tabs_ != nullptr && combined_page_ != nullptr)
-            tabs_->setCurrentWidget(combined_page_);
+        if (section_stack_ != nullptr && combined_page_ != nullptr) {
+            section_stack_->setCurrentWidget(combined_page_);
+            if (nav_rail_ != nullptr && scene_section_index_ >= 0)
+                nav_rail_->setCurrentIndex(scene_section_index_);  // Scene 3D
+        }
         if (beam_display_mode_ != nullptr)
             beam_display_mode_->setCurrentIndex(0);
 
@@ -2330,8 +2520,10 @@ void MainWindow::exportAllArtifacts()
         combined_scene_viewer_->setTrajectoryParameter(
             static_cast<double>(old_lambda) / 100.0);
         updateCombinedDisplayMode();
-        if (tabs_ != nullptr && old_tab >= 0)
-            tabs_->setCurrentIndex(old_tab);
+        if (section_stack_ != nullptr && old_section >= 0) {
+            section_stack_->setCurrentIndex(old_section);
+            if (nav_rail_ != nullptr) nav_rail_->setCurrentIndex(old_section);
+        }
         QApplication::processEvents();
     }
 
@@ -2448,13 +2640,16 @@ void MainWindow::exportTrajectoryVideoMp4()
     status_label_->setText("Exporting MP4 video...");
     QApplication::processEvents();
 
-    const int old_tab = tabs_ != nullptr ? tabs_->currentIndex() : -1;
+    const int old_section = section_stack_ != nullptr ? section_stack_->currentIndex() : -1;
     const int old_mode = beam_display_mode_ != nullptr ? beam_display_mode_->currentIndex() : 0;
     const int old_lambda = trajectory_parameter_slider_ != nullptr
         ? trajectory_parameter_slider_->value() : 100;
 
-    if (tabs_ != nullptr && combined_page_ != nullptr)
-        tabs_->setCurrentWidget(combined_page_);
+    if (section_stack_ != nullptr && combined_page_ != nullptr) {
+        section_stack_->setCurrentWidget(combined_page_);
+        if (nav_rail_ != nullptr && scene_section_index_ >= 0)
+            nav_rail_->setCurrentIndex(scene_section_index_);  // Scene 3D
+    }
     if (beam_display_mode_ != nullptr)
         beam_display_mode_->setCurrentIndex(0);
 
@@ -2462,10 +2657,12 @@ void MainWindow::exportTrajectoryVideoMp4()
     combined_scene_viewer_->setTrajectoryParameter(0.0);
     combined_scene_viewer_->frameLongestAxisHorizontally();
 
-    if (tabs_ != nullptr) tabs_->setEnabled(false);
+    if (section_stack_ != nullptr) section_stack_->setEnabled(false);
+    if (nav_rail_ != nullptr) nav_rail_->setEnabled(false);
     if (combined_controls_dock_ != nullptr) combined_controls_dock_->setEnabled(false);
     auto restore_ui = qScopeGuard([this] {
-        if (tabs_ != nullptr) tabs_->setEnabled(true);
+        if (section_stack_ != nullptr) section_stack_->setEnabled(true);
+        if (nav_rail_ != nullptr) nav_rail_->setEnabled(true);
         if (combined_controls_dock_ != nullptr) combined_controls_dock_->setEnabled(true);
     });
 
@@ -2482,8 +2679,10 @@ void MainWindow::exportTrajectoryVideoMp4()
     combined_scene_viewer_->setTrajectoryParameter(
         static_cast<double>(old_lambda) / 100.0);
     updateCombinedDisplayMode();
-    if (tabs_ != nullptr && old_tab >= 0)
-        tabs_->setCurrentIndex(old_tab);
+    if (section_stack_ != nullptr && old_section >= 0) {
+        section_stack_->setCurrentIndex(old_section);
+        if (nav_rail_ != nullptr) nav_rail_->setCurrentIndex(old_section);
+    }
     QApplication::processEvents();
 
     QApplication::restoreOverrideCursor();

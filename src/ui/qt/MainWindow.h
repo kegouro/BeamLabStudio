@@ -40,6 +40,7 @@ namespace beamlab::ui {
 
 class InfoWidget;
 class InteractiveGraphicsView;
+class NavigationRail;
 class RunDashboardWidget;
 class StatsDashboardWidget;
 
@@ -52,6 +53,8 @@ public:
 
 private:
     void buildUi();
+    QWidget* buildPlotsSection();
+    QWidget* buildDataSection();
     void showWelcomeScreen();
     void showWorkspace();
     void loadManifest(const QString& path);
@@ -100,6 +103,7 @@ private:
     void restoreDefaultPanelLayout();
     void updateRecentMenu();
     void addToRecentRuns(const QString& manifest_path);
+    void tryFallbackLoad(const QString& outputDir);
     void setLayerColorFromSwatch(QPushButton* swatch,
                                  int layer_index,
                                  const QColor& initial);
@@ -115,6 +119,9 @@ private:
     QLabel* status_label_{nullptr};
     QStackedWidget* central_stack_{nullptr};
     QTabWidget* tabs_{nullptr};
+    NavigationRail* nav_rail_{nullptr};
+    QStackedWidget* section_stack_{nullptr};
+    int scene_section_index_{-1};
     QWidget* trajectory_plot_page_{nullptr};
     QWidget* focal_slice_plot_page_{nullptr};
     QWidget* envelope_plot_page_{nullptr};
