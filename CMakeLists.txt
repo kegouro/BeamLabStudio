@@ -33,7 +33,33 @@ endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# ══════════════════════════════════════════════════════════════════════
+#  Build options
+# ══════════════════════════════════════════════════════════════════════
+
+option(BEAMLAB_ENABLE_QT_UI "Enable BeamLabStudio Qt UI" OFF)
+option(BEAMLAB_ENABLE_ROOT "Enable native CERN ROOT importer" OFF)
+option(BEAMLAB_ENABLE_PERFORMANCE_TESTS "Build performance benchmarks" ON)
+option(BEAMLAB_ENABLE_LTO "Enable Link Time Optimization (Release only)" ON)
+option(BEAMLAB_ENABLE_NATIVE_ARCH "Optimize for host CPU (-march=native)" OFF)
+option(BEAMLAB_BUILD_PLUGIN_TEMPLATES "Build example plugin .so files" OFF)
+option(BEAMLAB_ENABLE_PARQUET "Enable Apache Parquet export (requires Arrow)" OFF)
+
+set(BEAMLAB_PLUGINS_DIR "${CMAKE_INSTALL_PREFIX}/plugins"
+    CACHE PATH "Directory where external plugins are installed")
+
 enable_testing()
+
+# ── Platform layer ──────────────────────────────────────────────────
+
+# ── Domain layer (pure C++, no Qt) ──────────────────────────────────
+
+# ── Services layer (orchestration + storage, pure C++) ─────────────
+
+# ── Plugin templates (EXCLUDE_FROM_ALL — not built by default) ─────
+if(BEAMLAB_BUILD_PLUGIN_TEMPLATES)
+    add_subdirectory(src/plugins EXCLUDE_FROM_ALL)
+endif()
 
 add_compile_options(
     -Wall
@@ -50,6 +76,7 @@ add_library(beamlab_core STATIC
     src/app/CommandLineOptions.cpp
     src/core/foundation/NumericGuards.cpp
     src/core/config/ConfigLoader.cpp
+    src/core/config/ProfileManager.cpp
     src/core/storage/InMemoryStorage.cpp
     src/core/storage/SqliteStorage.cpp
     src/core/pipeline/AnalysisPipeline.cpp
@@ -116,7 +143,34 @@ add_executable(beamlab
 
 target_link_libraries(beamlab PRIVATE beamlab_core)
 
-option(BEAMLAB_ENABLE_ROOT "Enable native CERN ROOT importer" OFF)
+add_subdirectory(src/domain)
+
+if(BEAMLAB_ENABLE_QT_UI)
+    # ── Biological simulator module ─────────────────────────────
+    add_library(beamlab_biosim STATIC
+        src/biosim/materials/BioMaterialLibrary.cpp
+        src/biosim/materials/BioMaterialValidator.cpp
+        src/biosim/physics/ParticleLibrary.cpp
+        src/biosim/physics/StoppingPowerEngine.cpp
+        src/biosim/physics/BraggPeakCalculator.cpp
+        src/biosim/physics/EnergyStraggling.cpp
+        src/biosim/geometry/PhantomLibrary.cpp
+        src/biosim/core/EnergyScaleConverter.cpp
+        src/biosim/core/BioSimRunner.cpp
+        src/biosim/ui/qt/EnergyColorMapper.cpp
+        src/biosim/ui/qt/EnergyScaleBar.cpp
+        src/biosim/ui/qt/BioViewport3D.cpp
+        src/biosim/ui/qt/TrajectoryInspectorPanel.cpp
+        src/biosim/ui/qt/SlabEditor3D.cpp
+        src/biosim/ui/qt/BioSimWidget.cpp
+        src/biosim/ui/qt/MaterialEditorDialog.cpp
+        src/biosim/ui/qt/PhantomPresetPanel.cpp
+    )
+    target_include_directories(beamlab_biosim PUBLIC ${PROJECT_SOURCE_DIR}/src)
+    target_link_libraries(beamlab_biosim PUBLIC Qt6::Widgets Qt6::Concurrent beamlab_core)
+    target_compile_features(beamlab_biosim PRIVATE cxx_std_20)
+    set_target_properties(beamlab_biosim PROPERTIES AUTOMOC ON)
+endif()
 
 if(BEAMLAB_ENABLE_ROOT)
     find_program(ROOT_CONFIG_EXECUTABLE root-config REQUIRED)
@@ -155,105 +209,59 @@ if(BEAMLAB_ENABLE_ROOT)
     )
 endif()
 
-option(BEAMLAB_ENABLE_QT_UI "Enable BeamLabStudio Qt UI" OFF)
-
 if(BEAMLAB_ENABLE_QT_UI)
     set(CMAKE_AUTOMOC ON)
     set(CMAKE_AUTORCC ON)
     find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent)
 
-    # Auto-regenerate math_docs.html from //!@math blocks before each UI build.
-    # Requires Python 3.  Falls back gracefully if python3 is not found.
-    find_program(PYTHON3_EXECUTABLE python3)
-    set(MATH_DOCS_SCRIPT "${PROJECT_SOURCE_DIR}/scripts/generate_math_docs.py")
-    set(MATH_DOCS_OUTPUT "${PROJECT_SOURCE_DIR}/src/ui/qt/assets/math_docs.html")
-
-    if(PYTHON3_EXECUTABLE)
-        add_custom_command(
-            OUTPUT  "${MATH_DOCS_OUTPUT}"
-            COMMAND "${PYTHON3_EXECUTABLE}" "${MATH_DOCS_SCRIPT}"
-            DEPENDS "${MATH_DOCS_SCRIPT}"
-                    # Re-run whenever any physics/analysis source changes
-                    "${PROJECT_SOURCE_DIR}/src/biosim/core/ScoringPlaneDetector.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/analysis/statistics/FrameStatisticsEngine.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/analysis/focus/FocusDetector.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/io/normalization/AxisFrameResolver.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/io/normalization/DatasetNormalizer.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/io/importers/Geant4CsvImporter.cpp"
-            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-            COMMENT "Generating math_docs.html from //!@math source blocks"
-            VERBATIM
-        )
-        add_custom_target(math_docs ALL DEPENDS "${MATH_DOCS_OUTPUT}")
-    endif()
-
-    # ── Biological simulator module ─────────────────────────────────────────
-    # Self-contained; no existing code was modified.
-    add_library(beamlab_biosim STATIC
-        # Materials
-        src/biosim/materials/BioMaterialLibrary.cpp
-        src/biosim/materials/BioMaterialValidator.cpp
-        # Physics
-        src/biosim/physics/ParticleLibrary.cpp
-        src/biosim/physics/StoppingPowerEngine.cpp
-        src/biosim/physics/BraggPeakCalculator.cpp
-        src/biosim/physics/EnergyStraggling.cpp
-        # Geometry
-        src/biosim/geometry/PhantomLibrary.cpp
-        # Core (pipeline)
-        src/biosim/core/EnergyScaleConverter.cpp
-        src/biosim/core/BioSimRunner.cpp
-        # UI widgets (require Qt)
-        src/biosim/ui/qt/EnergyColorMapper.cpp
-        src/biosim/ui/qt/EnergyScaleBar.cpp
-        src/biosim/ui/qt/BioViewport3D.cpp
-        src/biosim/ui/qt/TrajectoryInspectorPanel.cpp
-        src/biosim/ui/qt/SlabEditor3D.cpp
-        src/biosim/ui/qt/BioSimWidget.cpp
-        src/biosim/ui/qt/MaterialEditorDialog.cpp
-        src/biosim/ui/qt/PhantomPresetPanel.cpp
-    )
-
-    target_include_directories(beamlab_biosim PUBLIC ${PROJECT_SOURCE_DIR}/src)
-
-    target_link_libraries(beamlab_biosim PUBLIC
-        Qt6::Widgets
-        Qt6::Concurrent
-        beamlab_core
-    )
-
-    target_compile_features(beamlab_biosim PRIVATE cxx_std_20)
-
-    add_executable(beamlab_ui
-        src/io/exporters/ExportManager.cpp
-        src/ui/qt/presenters/AnalysisPresenter.cpp
-        src/ui/qt/main.cpp
-        src/ui/qt/InteractiveGraphicsView.cpp
-        src/ui/qt/MainWindow.cpp
-        src/ui/qt/ObjViewerWidget.cpp
-        src/ui/qt/RunDashboardWidget.cpp
-        src/ui/qt/Scene3DWidget.cpp
-        src/ui/qt/InfoWidget.cpp
-        src/ui/qt/StatsDashboardWidget.cpp
-        src/ui/qt/resources.qrc
-    )
-
-    target_include_directories(beamlab_ui PRIVATE
-        ${PROJECT_SOURCE_DIR}/src
-    )
-
-    target_link_libraries(beamlab_ui PRIVATE
-        Qt6::Widgets
-        Qt6::Concurrent
-        beamlab_core
-        beamlab_biosim
-    )
-
-    target_compile_features(beamlab_ui PRIVATE cxx_std_20)
+    # ── Qt UI application ───────────────────────────────────────────
+    add_subdirectory(src/ui)
 endif()
 
-add_subdirectory(tests/unit)
+# ── All tests (unit, integration, performance) ─────────────────────
+add_subdirectory(tests)
 
-install(TARGETS beamlab beamlab_ui RUNTIME DESTINATION bin)
+# ══════════════════════════════════════════════════════════════════════
+#  Release optimisation flags (domain/math targets only, not storage)
+# ══════════════════════════════════════════════════════════════════════
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    # Apply to domain (physics/math) and core (Vec3, etc.).
+    # Do NOT apply to SQLite or storage — those optimise internally.
+    foreach(target beamlab_domain beamlab_core)
+        target_compile_options(${target} PRIVATE
+            $<$<CONFIG:Release>:-O3>
+        )
+    endforeach()
+
+    if(BEAMLAB_ENABLE_NATIVE_ARCH)
+        foreach(target beamlab_domain beamlab_core)
+            target_compile_options(${target} PRIVATE -march=native)
+        endforeach()
+        message(STATUS "Native arch enabled: -march=native")
+    endif()
+
+    if(BEAMLAB_ENABLE_LTO)
+        set_property(TARGET beamlab_domain
+            PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        set_property(TARGET beamlab_core
+            PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        message(STATUS "LTO enabled (link-time will be 2-3× slower — see docs/BUILD.md)")
+    endif()
+
+    if(BEAMLAB_ENABLE_NATIVE_ARCH)
+        message(STATUS "Native arch enabled: -march=native")
+    endif()
+endif()
+
+# ── Python bindings (optional) ────────────────────────────────────
+
+install(TARGETS beamlab RUNTIME DESTINATION bin)
+if(BEAMLAB_ENABLE_QT_UI)
+    install(TARGETS beamlab_ui
+        BUNDLE  DESTINATION .
+        RUNTIME DESTINATION bin)
+endif()
 install(DIRECTORY scripts/ DESTINATION share/BeamLabStudio/scripts
     FILES_MATCHING PATTERN "*.sh" PATTERN "*.py" PATTERN "*.cmd")
+

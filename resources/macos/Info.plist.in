@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>            <string>BeamLabStudio</string>
+    <key>CFBundleDisplayName</key>     <string>BeamLabStudio</string>
+    <key>CFBundleExecutable</key>      <string>BeamLabStudio</string>
+    <key>CFBundleIdentifier</key>      <string>studio.beamlab.app</string>
+    <key>CFBundleVersion</key>         <string>${PROJECT_VERSION}</string>
+    <key>CFBundleShortVersionString</key><string>${PROJECT_VERSION}</string>
+    <key>CFBundlePackageType</key>     <string>APPL</string>
+    <key>CFBundleIconFile</key>        <string>AppIcon</string>
+    <key>NSHighResolutionCapable</key> <true/>
+    <key>LSMinimumSystemVersion</key>  <string>12.0</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.education</string>
+    <key>NSHumanReadableCopyright</key><string>BeamLabStudio</string>
+</dict>
+</plist>
