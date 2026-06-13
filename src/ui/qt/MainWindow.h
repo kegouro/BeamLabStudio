@@ -7,8 +7,7 @@
 #include <vector>
 
 #include "ui/qt/presenters/AnalysisPresenter.h"
-
-#include "ui/qt/presenters/AnalysisPresenter.h"
+#include "ui/qt/shell/ActionRegistry.h"
 
 class QAction;
 class QColor;
@@ -38,6 +37,7 @@ class BioSimWidget;
 
 namespace beamlab::ui {
 
+class CommandPalette;
 class InfoWidget;
 class InteractiveGraphicsView;
 class NavigationRail;
@@ -122,6 +122,8 @@ private:
     NavigationRail* nav_rail_{nullptr};
     QStackedWidget* section_stack_{nullptr};
     int scene_section_index_{-1};
+    ActionRegistry action_registry_{};
+    CommandPalette* command_palette_{nullptr};
     QWidget* trajectory_plot_page_{nullptr};
     QWidget* focal_slice_plot_page_{nullptr};
     QWidget* envelope_plot_page_{nullptr};

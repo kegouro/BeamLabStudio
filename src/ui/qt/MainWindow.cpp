@@ -8,6 +8,7 @@
 #include "ui/qt/RunDashboardWidget.h"
 #include "ui/qt/Scene3DWidget.h"
 #include "ui/qt/StatsDashboardWidget.h"
+#include "ui/qt/shell/CommandPalette.h"
 #include "ui/qt/shell/NavigationRail.h"
 #include "biosim/ui/qt/BioSimWidget.h"
 
@@ -59,6 +60,7 @@
 #include <QRegularExpression>
 #include <QScrollArea>
 #include <QSettings>
+#include <QShortcut>
 #include <QSizePolicy>
 #include <QSignalBlocker>
 #include <QSlider>
@@ -1539,6 +1541,36 @@ void MainWindow::buildUi()
     updateRecentMenu();
     restoreSettings();
     showWelcomeScreen();
+
+    // ── Command palette (⌘K) ───────────────────────────────────────
+    const char* navNames[] = {"Overview","Scene 3D","Plots","Data","BioSim","Info & Docs"};
+    for (int i = 0; i < 6; ++i) {
+        action_registry_.add({
+            std::string("nav.") + std::to_string(i),
+            std::string("Ir a ") + navNames[i],
+            "Navegación",
+            "Cmd+" + std::to_string(i + 1),
+            [this, i] { nav_rail_->setCurrentIndex(i); section_stack_->setCurrentIndex(i); }
+        });
+    }
+    action_registry_.add({"file.open", "Abrir archivo y analizar…", "Archivo", "Cmd+O",
+        [this]{ openDataFileAndRun(); }});
+    action_registry_.add({"export.all", "Exportar todo", "Exportar", "",
+        [this]{ exportAllArtifacts(); }});
+    action_registry_.add({"export.mp4", "Exportar video MP4", "Exportar", "",
+        [this]{ exportTrajectoryVideoMp4(); }});
+    action_registry_.add({"export.png", "Exportar gráficos PNG", "Exportar", "",
+        [this]{ exportPlotsPng(); }});
+    action_registry_.add({"camera.horizontal", "Cámara: eje del haz horizontal", "Vista", "",
+        [this]{ if (combined_scene_viewer_) combined_scene_viewer_->frameLongestAxisHorizontally(); }});
+
+    command_palette_ = new CommandPalette(&action_registry_, this);
+    auto* paletteShortcut = new QShortcut(QKeySequence("Ctrl+K"), this);
+    connect(paletteShortcut, &QShortcut::activated, this, [this] {
+        command_palette_->move(
+            geometry().center() - QPoint(command_palette_->width() / 2, 160));
+        command_palette_->show();
+    });
 }
 
 QWidget* MainWindow::buildPlotsSection() { return new QWidget; }  // TODO Task B6
