@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QWidget>
-#include <vector>
 
 class QButtonGroup;
 class QVBoxLayout;
