@@ -47,6 +47,9 @@ add_executable(beamlab_ui
 
     # Sub-widgets (migrated from biosim)
 
+    # Shell (command palette backend — Qt-free logic)
+    qt/shell/ActionRegistry.cpp
+
     # Presenters
     qt/presenters/AnalysisPresenter.cpp
 
