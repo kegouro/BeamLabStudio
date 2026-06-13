@@ -1038,8 +1038,7 @@ void MainWindow::buildUi()
     nav_rail_->addGroupHeader("ANÁLISIS");
     addSection("▦", "Overview", dashboard_);
     scene_section_index_ = addSection("◉", "Scene 3D", combined_page_);
-    addSection("◔", "Plots", buildPlotsSection());
-    addSection("▤", "Data", buildDataSection());
+    // Plots and Data sections are added after statistics_page_ is constructed below.
 
     auto* statistics_page = new QWidget(tabs_);
     statistics_page->setObjectName("StatisticsPage");
@@ -1066,6 +1065,7 @@ void MainWindow::buildUi()
     statistics_dashboard_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     auto* statistics_scroll_area = new QScrollArea(statistics_page);
+    statistics_page_ = statistics_page;  // expose to buildPlotsSection()
     statistics_scroll_area->setObjectName("StatisticsScrollArea");
     statistics_scroll_area->setWidgetResizable(true);
     statistics_scroll_area->setFrameShape(QFrame::NoFrame);
@@ -1133,10 +1133,9 @@ void MainWindow::buildUi()
         set_statistics_details_visible(false);
     }, Qt::QueuedConnection);
 
-    // statistics_page, combined_page_ and trajectory_plot_page_ are constructed
-    // above; combined_page_ is exposed via the "Scene 3D" section. The others are
-    // owned by tabs_ but not surfaced in the rail this task (Task B6 will fold the
-    // plot/statistics pages into the Plots/Data sections).
+    // statistics_page_ is now assigned; add the Plots and Data sections.
+    addSection("◔", "Plots", buildPlotsSection());
+    addSection("▤", "Data", buildDataSection());
 
     // ── Individual trajectories 3D page with trajectory count control ─────────
     {
@@ -1568,13 +1567,69 @@ void MainWindow::buildUi()
     auto* paletteShortcut = new QShortcut(QKeySequence("Ctrl+K"), this);
     connect(paletteShortcut, &QShortcut::activated, this, [this] {
         command_palette_->move(
-            geometry().center() - QPoint(command_palette_->width() / 2, 160));
+            mapToGlobal(rect().center()) - QPoint(command_palette_->width() / 2, 160));
         command_palette_->show();
     });
 }
 
-QWidget* MainWindow::buildPlotsSection() { return new QWidget; }  // TODO Task B6
-QWidget* MainWindow::buildDataSection()  { return new QWidget; }  // TODO Task B6
+QWidget* MainWindow::buildPlotsSection()
+{
+    auto* page = new QWidget;
+    auto* v = new QVBoxLayout(page);
+    v->setContentsMargins(0, 0, 0, 0);
+    auto* selector = new QComboBox(page);
+    selector->setObjectName("SectionSelector");
+    auto* inner = new QStackedWidget(page);
+    auto add = [&](const QString& name, QWidget* w) {
+        selector->addItem(name);
+        inner->addWidget(w);
+    };
+    add("Statistics", statistics_page_ ? statistics_page_
+                                       : static_cast<QWidget*>(statistics_dashboard_));
+    add("Trajectories 2D", trajectory_plot_page_);
+    add("Focal slice", focal_slice_plot_page_);
+    add("Envelope rings", envelope_plot_page_);
+    connect(selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            inner, &QStackedWidget::setCurrentIndex);
+    // Re-wire auto-fit: when switching to a 2D plot view, fit the scene.
+    connect(selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, [this](int index) {
+        QMetaObject::invokeMethod(this, [this, index]() {
+            if (index == 1) {
+                fitSceneInView(trajectory_view_, trajectory_scene_);
+            } else if (index == 2) {
+                fitSceneInView(focal_slice_view_, focal_slice_scene_);
+            } else if (index == 3) {
+                fitSceneInView(envelope_view_, envelope_scene_);
+            }
+        }, Qt::QueuedConnection);
+    });
+    v->addWidget(selector);
+    v->addWidget(inner, 1);
+    return page;
+}
+
+QWidget* MainWindow::buildDataSection()
+{
+    auto* page = new QWidget;
+    auto* v = new QVBoxLayout(page);
+    v->setContentsMargins(0, 0, 0, 0);
+    auto* selector = new QComboBox(page);
+    selector->setObjectName("SectionSelector");
+    auto* inner = new QStackedWidget(page);
+    auto add = [&](const QString& name, QWidget* w) {
+        selector->addItem(name);
+        inner->addWidget(w);
+    };
+    add("Trajectories CSV", trajectories_table_);
+    add("Focal slice CSV", focal_slice_table_);
+    add("Envelope rings CSV", envelope_table_);
+    connect(selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            inner, &QStackedWidget::setCurrentIndex);
+    v->addWidget(selector);
+    v->addWidget(inner, 1);
+    return page;
+}
 
 QString MainWindow::readTextFile(const QString& path) const
 {

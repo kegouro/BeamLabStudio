@@ -127,6 +127,7 @@ private:
     QWidget* trajectory_plot_page_{nullptr};
     QWidget* focal_slice_plot_page_{nullptr};
     QWidget* envelope_plot_page_{nullptr};
+    QWidget* statistics_page_{nullptr};
 
     RunDashboardWidget* dashboard_{nullptr};
     StatsDashboardWidget* statistics_dashboard_{nullptr};
