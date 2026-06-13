@@ -50,6 +50,7 @@ add_executable(beamlab_ui
     # Shell (command palette backend — Qt-free logic)
     qt/shell/ActionRegistry.cpp
     qt/shell/CommandPalette.cpp
+    qt/shell/NavigationRail.cpp
 
     # Presenters
     qt/presenters/AnalysisPresenter.cpp
