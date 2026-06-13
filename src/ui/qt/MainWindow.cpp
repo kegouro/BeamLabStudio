@@ -664,6 +664,14 @@ void MainWindow::buildUi()
                 });
     }
 
+    // tabs_ es la navegación legada: tras el rediseño (riel + section_stack_)
+    // ya no se añade a ningún layout, solo sobrevive como owner de páginas no
+    // surfaced. Sin slot de layout, Qt lo renderizaría en (0,0) de `central`
+    // —su barra vacía, el toggle "◀" y los "Reset" de las páginas huérfanas se
+    // superpondrían al logo del top bar—. Ocultarlo elimina todo el subárbol
+    // vestigial; las páginas reparentadas a section_stack_ no se ven afectadas.
+    tabs_->hide();
+
     dashboard_ = new RunDashboardWidget(tabs_);
 
     statistics_dashboard_ = new StatsDashboardWidget(tabs_);
