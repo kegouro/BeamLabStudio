@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "biosim/ui/qt/EnergyColorMapper.h"
 #include "ui/qt/presenters/AnalysisPresenter.h"
 #include "ui/qt/shell/ActionRegistry.h"
 
@@ -194,6 +195,7 @@ private:
     QSpinBox* traj3d_count_spin_{nullptr};
     QLabel* traj3d_count_label_{nullptr};
     QLabel* traj3d_energy_label_{nullptr};
+    QComboBox* traj3d_palette_combo_{nullptr};
 
     QString current_manifest_path_{};
     QString current_run_dir_{};

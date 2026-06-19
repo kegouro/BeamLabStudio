@@ -12,6 +12,12 @@
 
 namespace beamlab::ui {
 
+// Subsampling constants shared between AnalysisPresenter (in-process path) and
+// MainWindow::defaultAnalysisArguments() (QProcess path).  Both code paths MUST
+// use the same values so that CSV rows align 1-to-1 with OBJ vertices.
+inline constexpr int kPreviewTrajectories   = 10000;
+inline constexpr int kPreviewSamplesPerTraj = 200;
+
 class AnalysisPresenter : public QObject,
                           public beamlab::core::ProgressTracker
 {

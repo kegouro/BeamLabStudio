@@ -1,6 +1,7 @@
 #include "ui/qt/ObjViewerWidget.h"
 
 #include <QColor>
+#include <QDebug>
 #include <QFile>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -13,11 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdint>
-#include <cstring>
 #include <limits>
-#include <tuple>
-#include <unordered_map>
 
 namespace beamlab::ui {
 namespace {
@@ -184,29 +181,15 @@ void ObjViewerWidget::loadEnergyCSV(const QString& path)
 
     QTextStream stream(&file);
 
-    // --- Pass 1: build coordinate → kinE_MeV map from CSV ---
+    // OBJ vertices and CSV data rows are written in the same order by the
+    // pipeline (both driven by the same preview-trajectories / preview-samples
+    // parameters), so vertex i maps directly to CSV data row i — no coordinate
+    // comparison needed and no floating-point equality issues.
+    //
     // CSV columns: trajectory_index(0), sample_index(1), time_s(2),
     //              x_m(3), y_m(4), z_m(5), edep_MeV(6), edep_eV(7), kinE_MeV(8)
-    // Both OBJ and CSV use the same source values with the same precision, so
-    // parsed doubles compare exactly. Trajectory skip mismatches (<2 samples)
-    // are rare; coordinate lookup handles them correctly in all cases.
-    struct CoordHash {
-        std::size_t operator()(const std::tuple<double,double,double>& k) const {
-            // Bit-cast each double to uint64 and mix.
-            auto h = [](double v) -> std::size_t {
-                std::uint64_t bits{};
-                static_assert(sizeof(bits) == sizeof(v));
-                std::memcpy(&bits, &v, sizeof(v));
-                return std::hash<std::uint64_t>{}(bits);
-            };
-            auto seed = h(std::get<0>(k));
-            seed ^= h(std::get<1>(k)) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-            seed ^= h(std::get<2>(k)) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-            return seed;
-        }
-    };
-    std::unordered_map<std::tuple<double,double,double>, double, CoordHash> coord_map;
-    coord_map.reserve(vertices_.size() * 2);
+    std::vector<double> raw_energies;
+    raw_energies.reserve(vertices_.size());
 
     while (!stream.atEnd()) {
         const QString line = stream.readLine().trimmed();
@@ -216,60 +199,52 @@ void ObjViewerWidget::loadEnergyCSV(const QString& path)
         }
         const QStringList parts = line.split(',');
         if (parts.size() < 9) continue;
-
-        bool ok_x{}, ok_y{}, ok_z{}, ok_e{};
-        const double x = parts[3].toDouble(&ok_x);
-        const double y = parts[4].toDouble(&ok_y);
-        const double z = parts[5].toDouble(&ok_z);
-        const double e = parts[8].toDouble(&ok_e);
-        if (!ok_x || !ok_y || !ok_z || !ok_e) continue;
-
-        coord_map.emplace(std::make_tuple(x, y, z), e);
+        bool ok{};
+        const double e = parts[8].toDouble(&ok);
+        if (!ok) continue;
+        raw_energies.push_back(e);
     }
 
-    if (coord_map.empty()) return;
+    if (raw_energies.empty()) return;
 
-    // --- Pass 2: assign energy to each OBJ vertex via coordinate lookup ---
-    double e_min = std::numeric_limits<double>::infinity();
-    double e_max = -std::numeric_limits<double>::infinity();
-    int matched = 0;
+    const std::size_t nv = vertices_.size();
+    const std::size_t to_assign = std::min(nv, raw_energies.size());
 
-    vertex_energies_.resize(vertices_.size(), 0.0);
-    std::vector<double> matched_energies;
-    matched_energies.reserve(vertices_.size());
-    for (std::size_t i = 0; i < vertices_.size(); ++i) {
-        const auto& v = vertices_[i];
-        auto it = coord_map.find(std::make_tuple(v.x, v.y, v.z));
-        if (it != coord_map.end()) {
-            vertex_energies_[i] = it->second;
-            e_min = std::min(e_min, it->second);
-            e_max = std::max(e_max, it->second);
-            matched_energies.push_back(it->second);
-            ++matched;
-        }
+    // Vertices without a matching CSV row default to the low end of the scale
+    // so unmatched vertices stay visually neutral (blue).
+    double overall_min = std::numeric_limits<double>::infinity();
+    double overall_max = -std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i < to_assign; ++i) {
+        overall_min = std::min(overall_min, raw_energies[i]);
+        overall_max = std::max(overall_max, raw_energies[i]);
     }
 
-    if (matched == 0) {
-        vertex_energies_.clear();
-        return;
+    vertex_energies_.assign(nv, overall_min);
+    for (std::size_t i = 0; i < to_assign; ++i) {
+        vertex_energies_[i] = raw_energies[i];
     }
+
+    // Post-condition: vertex_energies_ is always parallel to vertices_.
+    Q_ASSERT(vertex_energies_.size() == vertices_.size());
 
     // Use P1–P99 percentiles for the colour scale so a few outlier samples
     // (e.g. a particle that fully stops) do not flatten the visible gradient.
-    double p_lo = e_min;
-    double p_hi = e_max;
-    if (matched_energies.size() >= 100) {
-        const std::size_t lo_idx = static_cast<std::size_t>(0.01 * static_cast<double>(matched_energies.size()));
-        const std::size_t hi_idx = std::min(matched_energies.size() - 1,
-                                            static_cast<std::size_t>(0.99 * static_cast<double>(matched_energies.size())));
-        std::nth_element(matched_energies.begin(),
-                         matched_energies.begin() + static_cast<std::ptrdiff_t>(lo_idx),
-                         matched_energies.end());
-        p_lo = matched_energies[lo_idx];
-        std::nth_element(matched_energies.begin() + static_cast<std::ptrdiff_t>(lo_idx) + 1,
-                         matched_energies.begin() + static_cast<std::ptrdiff_t>(hi_idx),
-                         matched_energies.end());
-        p_hi = matched_energies[hi_idx];
+    double p_lo = overall_min;
+    double p_hi = overall_max;
+    if (to_assign >= 100) {
+        std::vector<double> sorted(raw_energies.begin(),
+                                   raw_energies.begin() + static_cast<std::ptrdiff_t>(to_assign));
+        const std::size_t lo_idx = static_cast<std::size_t>(0.01 * static_cast<double>(sorted.size()));
+        const std::size_t hi_idx = std::min(sorted.size() - 1,
+                                            static_cast<std::size_t>(0.99 * static_cast<double>(sorted.size())));
+        std::nth_element(sorted.begin(),
+                         sorted.begin() + static_cast<std::ptrdiff_t>(lo_idx),
+                         sorted.end());
+        p_lo = sorted[lo_idx];
+        std::nth_element(sorted.begin() + static_cast<std::ptrdiff_t>(lo_idx) + 1,
+                         sorted.begin() + static_cast<std::ptrdiff_t>(hi_idx),
+                         sorted.end());
+        p_hi = sorted[hi_idx];
     }
     if (!(p_hi > p_lo)) {
         p_hi = p_lo + 0.5;
@@ -280,13 +255,14 @@ void ObjViewerWidget::loadEnergyCSV(const QString& path)
     energy_max_ = p_hi;
 
     // Update status to reflect energy range.
-    status_text_ = QString("OBJ loaded | Energy P1–P99: [%1, %2] MeV | full [%3, %4] | %5/%6 vertices matched")
+    status_text_ = QString(
+        "OBJ loaded | Energy P1–99: [%1, %2] MeV | full [%3, %4] | %5/%6 vertices")
         .arg(p_lo, 0, 'f', 2)
         .arg(p_hi, 0, 'f', 2)
-        .arg(e_min, 0, 'g', 4)
-        .arg(e_max, 0, 'g', 4)
-        .arg(matched)
-        .arg(static_cast<int>(vertices_.size()));
+        .arg(overall_min, 0, 'g', 4)
+        .arg(overall_max, 0, 'g', 4)
+        .arg(static_cast<int>(to_assign))
+        .arg(static_cast<int>(nv));
 
     update();
 }
@@ -302,31 +278,16 @@ bool ObjViewerWidget::energyGradientEnabled() const
     return energy_gradient_;
 }
 
-// static
-QColor ObjViewerWidget::energyToColor(const double t)
+void ObjViewerWidget::setActivePalette(
+    beamlab::biosim::EnergyColorMapper::Palette palette)
 {
-    // Temperature gradient: blue(cold) → cyan → green → yellow → red(hot)
-    struct Stop { double pos; int r, g, b; };
-    constexpr std::array<Stop, 5> stops{{
-        {0.00,   0,   0, 230},
-        {0.25,   0, 200, 255},
-        {0.50,   0, 230,  80},
-        {0.75, 255, 210,   0},
-        {1.00, 255,  40,   0}
-    }};
-    const double tc = std::clamp(t, 0.0, 1.0);
-    int seg = 0;
-    for (; seg < 3; ++seg) {
-        if (tc <= stops[static_cast<std::size_t>(seg + 1)].pos) break;
-    }
-    const auto& s0 = stops[static_cast<std::size_t>(seg)];
-    const auto& s1 = stops[static_cast<std::size_t>(seg + 1)];
-    const double f = (tc - s0.pos) / (s1.pos - s0.pos);
-    return QColor(
-        static_cast<int>(s0.r + f * (s1.r - s0.r)),
-        static_cast<int>(s0.g + f * (s1.g - s0.g)),
-        static_cast<int>(s0.b + f * (s1.b - s0.b))
-    );
+    active_palette_ = palette;
+    update();
+}
+
+QColor ObjViewerWidget::energyToColor(const double t) const
+{
+    return color_mapper_.map(t, active_palette_);
 }
 
 void ObjViewerWidget::drawEnergyScaleBar(QPainter& painter,

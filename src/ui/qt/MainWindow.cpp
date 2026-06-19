@@ -1,5 +1,7 @@
 #include "ui/qt/MainWindow.h"
 #include "analysis/envelope/FullEnvelopePreviewBuilder.h"
+#include "biosim/ui/qt/BioSimWidget.h"
+#include "biosim/ui/qt/EnergyColorMapper.h"
 #include "core/config/ConfigLoader.h"
 #include "io/exporters/ExportManager.h"
 #include "ui/qt/InfoWidget.h"
@@ -10,7 +12,6 @@
 #include "ui/qt/StatsDashboardWidget.h"
 #include "ui/qt/shell/CommandPalette.h"
 #include "ui/qt/shell/NavigationRail.h"
-#include "biosim/ui/qt/BioSimWidget.h"
 
 #include <QAction>
 #include <QBrush>
@@ -275,8 +276,10 @@ QStringList defaultAnalysisArguments(const QFileInfo& input_info)
     args << "--caustic-points" << "256";
     args << "--lens-points" << "128";
     args << "--lens-layers" << "16";
-    args << "--preview-trajectories" << "10000";
-    args << "--preview-samples-per-trajectory" << "200";
+    args << "--preview-trajectories"
+         << QString::number(beamlab::ui::kPreviewTrajectories);
+    args << "--preview-samples-per-trajectory"
+         << QString::number(beamlab::ui::kPreviewSamplesPerTraj);
     args << "--preview-slice-points" << "10000";
 
     return args;
@@ -1182,6 +1185,19 @@ void MainWindow::buildUi()
         traj3d_count_spin_->setMaximumWidth(70);
         traj3d_count_spin_->setEnabled(false);
 
+        // Palette selector (G5: routes to EnergyColorMapper).
+        traj3d_palette_combo_ = new QComboBox(traj3d_page);
+        for (int i = 0; i < beamlab::biosim::EnergyColorMapper::kPaletteCount; ++i) {
+            traj3d_palette_combo_->addItem(
+                beamlab::biosim::EnergyColorMapper::paletteName(
+                    static_cast<beamlab::biosim::EnergyColorMapper::Palette>(i)));
+        }
+        traj3d_palette_combo_->setCurrentIndex(
+            static_cast<int>(beamlab::biosim::EnergyColorMapper::Palette::BraggPeak));
+        traj3d_palette_combo_->setToolTip("Energy colour palette");
+        traj3d_palette_combo_->setMaximumWidth(120);
+        traj3d_palette_combo_->setEnabled(false);  // enabled when gradient is on
+
         traj3d_toolbar->addWidget(reset3d);
         traj3d_toolbar->addWidget(iso3d);
         traj3d_toolbar->addWidget(xy3d);
@@ -1191,6 +1207,7 @@ void MainWindow::buildUi()
         traj3d_toolbar->addWidget(axes3d);
         traj3d_toolbar->addWidget(meas3d);
         traj3d_toolbar->addWidget(gradient3d);
+        traj3d_toolbar->addWidget(traj3d_palette_combo_);
         traj3d_toolbar->addWidget(traj3d_energy_label_);
         traj3d_toolbar->addSpacing(16);
         traj3d_toolbar->addWidget(traj3d_count_label_);
@@ -1212,6 +1229,16 @@ void MainWindow::buildUi()
                 trajectories_obj_viewer_, &ObjViewerWidget::setEnergyGradientEnabled);
         connect(gradient3d, &QCheckBox::toggled, traj3d_energy_label_,
                 [this](bool on) { if (!on) traj3d_energy_label_->setVisible(false); });
+        connect(gradient3d, &QCheckBox::toggled, traj3d_palette_combo_,
+                &QComboBox::setEnabled);
+
+        // Route palette selection to ObjViewerWidget (G5).
+        connect(traj3d_palette_combo_,
+                static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+                this, [this](int index) {
+                    trajectories_obj_viewer_->setActivePalette(
+                        static_cast<beamlab::biosim::EnergyColorMapper::Palette>(index));
+                });
         connect(trajectories_obj_viewer_, &ObjViewerWidget::energyPicked, this,
                 [this](double kinE_MeV, QPointF /*screen_pos*/) {
                     traj3d_energy_label_->setText(
@@ -1237,9 +1264,8 @@ void MainWindow::buildUi()
         obj_axes_checks_.push_back(axes3d);
         obj_measure_guides_checks_.push_back(meas3d);
 
-        // traj3d_page is created with parent tabs_; it stays alive but is not
-        // surfaced in the rail this task.
-        (void)traj3d_page;
+        // G2: register in nav rail so the page is reachable from the sidebar.
+        addSection("⚡", "Trajectories 3D", traj3d_page);
     }
     // The OBJ-viewer-only pages must still be constructed (they wire up the axes /
     // measure-guide checkboxes and camera presets) even though they are not part
