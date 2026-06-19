@@ -94,6 +94,7 @@ target_link_libraries(beamlab_ui PRIVATE
     Qt6::Widgets
     Qt6::Concurrent
     beamlab_core
+    beamlab_domain
     beamlab_biosim
 )
 

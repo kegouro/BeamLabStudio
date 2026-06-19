@@ -36,3 +36,15 @@ __pycache__/
 *.bak*
 .aider*
 push.txt
+
+# Visual brainstorming companion
+.superpowers/
+
+# Distribution artifacts
+*.dmg
+
+# Graph tooling output
+graphify-out/
+
+# LibreOffice / office locks
+.~lock.*#

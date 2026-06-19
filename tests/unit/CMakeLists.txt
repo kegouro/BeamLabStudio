@@ -32,4 +32,4 @@ target_link_libraries(beamlab_tests PRIVATE
     sqlite3
 )
 
-gtest_discover_tests(beamlab_tests)
+gtest_discover_tests(beamlab_tests PROPERTIES LABELS unit)
