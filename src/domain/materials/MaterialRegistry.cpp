@@ -188,14 +188,19 @@ Material MaterialRegistry::makeWater()
 {
     Material m;
     m.id = "water_icru";
-    m.name = "Water (ICRU-44)";
+    m.name = "Water (ICRU-90)";
     m.symbol = "H\u2082O";
     m.category = MaterialCategory::Biological;
-    m.reference = "ICRU Report 44 (1989), Table A.1";
-    m.density_g_cm3 = 1.000;
-    m.Z_eff = 7.22;
-    m.A_eff = 13.00;
-    m.meanExcitationEnergy_eV = 75.0;
+    m.reference = "ICRU Report 90 (2016): I=78 eV; composition ICRU-44 (1989)";
+    m.density_g_cm3 = 1.000;            // [g/cm^3] liquid water, ICRU-90
+    m.Z_eff = 7.22;                     // [dimensionless] effective atomic number
+    m.A_eff = 13.00;                    // [g/mol] effective atomic mass
+    // Mean excitation energy. ICRU Report 90 (2016) revised liquid water
+    // from the older 75 eV (ICRU-37/49, used by NIST PSTAR) up to 78 eV.
+    // This is the configurable "I-value knob" (S1/S8). A higher I lowers
+    // dE/dx by ~0.8% in 10-250 MeV vs the PSTAR reference (Emfietzoglou &
+    // Nikjoo 2009; ICRU-90), well inside the +-5% validation target.
+    m.meanExcitationEnergy_eV = 78.0;   // [eV] ICRU-90 (2016)
     m.sternheimer = {0.09116, 3.4773, 0.2400, 2.8004, -3.5017, 0.0, true};
     m.radiationLength_cm = 36.08;
     m.nuclearIntLength_cm = 83.30;

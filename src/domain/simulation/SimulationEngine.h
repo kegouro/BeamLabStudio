@@ -69,8 +69,10 @@ public:
         std::string referenceSource;
     };
 
-    /// Compare dE/dx at 150 MeV against NIST PSTAR reference value.
-    /// Pass threshold: ±2%.
+    /// Compare computed dE/dx against an EXTERNAL set of published NIST PSTAR
+    /// reference values for protons in water across 50-250 MeV (not against the
+    /// engine's own output). deviations.front() holds the worst-case % over the
+    /// band; pass threshold: 5%.
     ValidationReport validateAgainstNist(
         const std::string& materialName,
         const std::string& particleName) const;

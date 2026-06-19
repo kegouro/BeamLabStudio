@@ -1,0 +1,40 @@
+# NIST PSTAR — Proton stopping power in WATER, LIQUID (matno 276)
+#
+# Source : NIST PSTAR database, physics.nist.gov/PhysRefData/Star/Text/PSTAR.html
+#          (interactive: physics.nist.gov/cgi-bin/Star/ap_table.pl, material
+#           "Water, Liquid"). PSTAR adopts the ICRU-37/49 mean excitation
+#           energy I = 75.0 eV for liquid water.
+# Quantity: TOTAL mass stopping power = electronic (collision) + nuclear.
+#           Above ~10 MeV the nuclear contribution is < 0.05 % of the total.
+# Units   : column 1 = proton kinetic energy [MeV]
+#           column 2 = total mass stopping power [MeV·cm²/g]
+#           (linear dE/dx [MeV/cm] = column 2 × ρ, with ρ_water = 1.0 g/cm³)
+#
+# This is an EXTERNAL reference table (independent of this project's
+# Bethe-Bloch output); it exists to validate SimulationEngine against a
+# recognised standard rather than against itself.
+#
+# Audit: the data block below (every non-comment, non-blank line, byte-for-byte
+#        including the trailing newline) hashes to:
+#   SHA-256 = 2a592863f914be61b5076804c14b84b3cf513edf238a61f2de16ebdd9355d816
+#   Reproduce: sed -n '/^[^#]/p' nist_pstar_proton_water.csv | shasum -a 256
+#
+# energy_MeV,stopping_power_MeV_cm2_g
+10.0,45.67
+15.0,32.92
+20.0,26.07
+30.0,18.76
+40.0,15.04
+50.0,12.45
+60.0,10.69
+70.0,9.564
+80.0,8.625
+100.0,7.289
+125.0,6.192
+150.0,5.445
+175.0,4.903
+200.0,4.492
+225.0,4.170
+250.0,3.911
+275.0,3.698
+300.0,3.520

@@ -1,14 +1,14 @@
 [
   {
     "id": "water_icru",
-    "name": "Water (ICRU-44)",
+    "name": "Water (ICRU-90)",
     "symbol": "H₂O",
     "category": "biological",
-    "reference": "ICRU Report 44 (1989), Table A.1",
+    "reference": "ICRU Report 90 (2016): I=78 eV; composition ICRU-44 (1989)",
     "density_g_cm3": 1.000,
     "Z_eff": 7.22,
     "A_eff": 13.00,
-    "meanExcitationEnergy_eV": 75.0,
+    "meanExcitationEnergy_eV": 78.0,
     "sternheimer": {
       "a": 0.09116,
       "k": 3.4773,

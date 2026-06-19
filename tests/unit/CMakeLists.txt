@@ -11,6 +11,7 @@ add_executable(beamlab_tests
     test_PhysicsRegression.cpp
     test_PhysicsRegressionFixes.cpp
     domain/test_SimulationEngine.cpp
+    domain/test_BetheBlochNistRegression.cpp
     services/test_ProfileManager.cpp
     ui/test_ActionRegistry.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/qt/shell/ActionRegistry.cpp
