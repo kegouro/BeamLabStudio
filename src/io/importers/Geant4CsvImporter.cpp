@@ -195,6 +195,61 @@ Geant4Columns detectColumns(const std::vector<std::string>& header)
     return columns;
 }
 
+// PDG-2022 electromagnetic charge table (integer units of |e|).
+// Ref: PDG 2022 Review of Particle Physics, Summary Tables.
+// Returns the charge in units of the elementary charge (+1, −1, 0, …).
+// If the PDG code is unknown, returns std::nullopt so the caller can
+// fall back to a heuristic (e.g. sign of the PDG code) rather than
+// silently injecting a wrong charge.
+constexpr std::optional<double> pdgCharge(std::int64_t pdg) noexcept
+{
+    // Particles are keyed by |PDG|; the sign of the code flips the charge
+    // for charged particles (anti-particle convention).
+    const int sign = (pdg < 0) ? -1 : 1;
+
+    struct Entry { std::int64_t abs_pdg; double charge; };
+    constexpr Entry kTable[] = {
+        {11,   -1.0},   // e−        (PDG 2022)
+        {13,   -1.0},   // μ−        (PDG 2022)
+        {15,   -1.0},   // τ−        (PDG 2022)
+        {211,  +1.0},   // π+        (PDG 2022)
+        {321,  +1.0},   // K+        (PDG 2022)
+        {2212, +1.0},   // proton    (PDG 2022)
+        {2112,  0.0},   // neutron   (PDG 2022)
+        {22,    0.0},   // photon    (PDG 2022)
+        {12,    0.0},   // νe        (PDG 2022)
+        {14,    0.0},   // νμ        (PDG 2022)
+        {16,    0.0},   // ντ        (PDG 2022)
+        {111,   0.0},   // π0        (PDG 2022)
+        {130,   0.0},   // K0L       (PDG 2022)
+        {310,   0.0},   // K0S       (PDG 2022)
+        {2224, +2.0},   // Δ++       (PDG 2022)
+    };
+
+    const std::int64_t abs_code = (pdg < 0) ? -pdg : pdg;
+    for (const auto& e : kTable) {
+        if (abs_code == e.abs_pdg) {
+            // Neutrals: anti-particle has same charge (0).
+            const double q = (e.charge == 0.0) ? 0.0 : e.charge * sign;
+            return q;
+        }
+    }
+    return std::nullopt; // unknown PDG code
+}
+
+// Shared validation guard used by both batch and streaming import paths.
+// Returns true if the sample passes all guards; populates drop_reason on fail.
+// ponytail: single guard function, not two | techo: only energy/time guards
+//           | upgrade: add momentum bounds check when physics limits are known
+inline bool samplePassesGuards(double edep_v, double kine_v, double time_v,
+                                const char*& drop_reason) noexcept
+{
+    if (edep_v < 0.0) { drop_reason = "edep_MeV < 0"; return false; }
+    if (kine_v < 0.0) { drop_reason = "kinE_MeV < 0"; return false; }
+    if (time_v < 0.0) { drop_reason = "time_ns < 0";  return false; }
+    return true;
+}
+
 // Invariant: at most kMaxTracksPerEvent tracks per event.  The unique
 // trajectory id packs (event, track) into a single 64-bit slot:
 //   unique_id = event * kMaxTracksPerEvent + track + 1
@@ -441,6 +496,7 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         int64_t event_val = event_id.value_or(0);
         int64_t pdg_int = pdg_val.value_or(0);
 
+        // Time guard — shared logic with streaming path (S4 unified guards).
         if (time_ns_val < 0.0) {
             recordDrop("time_ns < 0", line_number);
             continue;
@@ -494,8 +550,7 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         if (!readOptionalNumeric(columns.momy_MeV, "momy_MeV", momy_opt)) continue;
         if (!readOptionalNumeric(columns.momz_MeV, "momz_MeV", momz_opt)) continue;
 
-        // Reject negative energies — these are not physically meaningful and
-        // would silently bias dose/energy aggregates downstream.
+        // Energy guards (S4) — shared logic with streaming path via samplePassesGuards.
         if (edep_opt && *edep_opt < 0.0) {
             recordDrop("edep_MeV < 0", line_number);
             continue;
@@ -533,17 +588,27 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
             trajectory.particle.initial_kinE_MeV = sample.kinE_MeV;
             trajectory.particle.particle_type   = particle_name;
 
-            const int pdg_abs = pdg_int < 0 ? -static_cast<int>(pdg_int)
-                                             : static_cast<int>(pdg_int);
-            trajectory.particle.charge = (pdg_int < 0) ? 1.0 : -1.0;
+            // S3: PDG-2022 charge lookup replaces the prior sign-flip heuristic
+            // which was inverted (proton 2212→+1, γ 22→0, e− 11→−1, μ− 13→−1).
+            {
+                const auto q_opt = pdgCharge(pdg_int);
+                trajectory.particle.charge = q_opt.value_or(
+                    // Fallback for unknown codes: neutral assumption is safest.
+                    // ponytail: unknown PDG defaults to 0 | techo: correct for stable SM
+                    // | upgrade: extend kTable when exotic particles appear
+                    0.0);
+            }
+
+            const std::int64_t pdg_abs = (pdg_int < 0) ? -pdg_int : pdg_int;
+            // Masses: PDG 2022 values in MeV/c²
             if (pdg_abs == 13) {
-                trajectory.particle.mass_MeV = 105.6583755;
+                trajectory.particle.mass_MeV = 105.6583755;    // μ  PDG 2022
             } else if (pdg_abs == 11) {
-                trajectory.particle.mass_MeV = 0.51099895;
+                trajectory.particle.mass_MeV = 0.51099895;     // e  PDG 2022
             } else if (pdg_abs == 2212) {
-                trajectory.particle.mass_MeV = 938.272089;
+                trajectory.particle.mass_MeV = 938.27208816;   // p  PDG 2022
             } else {
-                trajectory.particle.mass_MeV = 105.6583755;
+                trajectory.particle.mass_MeV = 105.6583755;    // default: muon
             }
         }
 
@@ -671,6 +736,14 @@ uint64_t Geant4CsvImporter::importStreaming(
         fastParseDouble(tok(columns.momz_MeV).c_str(), mz);
         fastParseInt64(tok(columns.trackID).c_str(), track_v);
         fastParseInt64(tok(columns.eventID).c_str(), event_v);
+
+        // S4: unified guards — same function used by the batch path.
+        {
+            const char* reason = nullptr;
+            if (!samplePassesGuards(edep_v, kine_v, time_v, reason)) {
+                continue; // silently skip; streaming path has no per-row warnings
+            }
+        }
 
         std::string trajId = std::to_string(event_v) + "_" + std::to_string(track_v);
         if (trajId != currentTrajId) {

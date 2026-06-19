@@ -10,6 +10,7 @@ add_executable(beamlab_tests
     test_BatchStatisticsEngine.cpp
     test_PhysicsRegression.cpp
     test_PhysicsRegressionFixes.cpp
+    test_F2_fixes.cpp
     domain/test_SimulationEngine.cpp
     domain/test_BetheBlochNistRegression.cpp
     services/test_ProfileManager.cpp

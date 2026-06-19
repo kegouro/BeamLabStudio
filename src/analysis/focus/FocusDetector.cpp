@@ -34,19 +34,16 @@ beamlab::data::FocusResult FocusDetector::detect(const beamlab::data::FocusCurve
         return result;
     }
 
-    std::size_t best_index = 0;
+    // S6: find the global minimum metric value first, then resolve ties by
+    // selecting the centroid (average index) of the plateau of bins that all
+    // share the exact same minimum value.  This eliminates the off-by-one
+    // introduced by a strict "<" loop that picks the first tied bin.
     double best_value = std::numeric_limits<double>::infinity();
 
     for (std::size_t i = 0; i < curve.points.size(); ++i) {
-        const double metric_value = curve.points[i].metric_value;
-
-        if (!std::isfinite(metric_value)) {
-            continue;
-        }
-
-        if (metric_value < best_value) {
-            best_value = curve.points[i].metric_value;
-            best_index = i;
+        const double v = curve.points[i].metric_value;
+        if (std::isfinite(v) && v < best_value) {
+            best_value = v;
         }
     }
 
@@ -55,6 +52,21 @@ beamlab::data::FocusResult FocusDetector::detect(const beamlab::data::FocusCurve
         result.confidence = 0.0;
         return result;
     }
+
+    // Collect all bins with the minimum value (plateau).
+    std::size_t plateau_sum = 0;
+    std::size_t plateau_count = 0;
+    for (std::size_t i = 0; i < curve.points.size(); ++i) {
+        // Use exact equality: all plateau bins share the same IEEE-754 double.
+        if (curve.points[i].metric_value == best_value) {
+            plateau_sum += i;
+            ++plateau_count;
+        }
+    }
+    // Centroid index of the plateau (round toward zero).
+    const std::size_t best_index = (plateau_count > 0)
+        ? (plateau_sum / plateau_count)
+        : 0;
 
     result.focus_index = best_index;
     result.focus_reference_value = curve.points[best_index].reference_value;

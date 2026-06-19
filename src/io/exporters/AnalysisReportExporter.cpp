@@ -104,11 +104,12 @@ ExportResult AnalysisReportExporter::exportFocusCurve(
     output << "# units: reference_value_m and metric_value_m in meters\n";
     output << "# metric: " << focus.curve.metric_name << "\n";
     output << "# focus_index: " << focus.focus_index << "\n";
+    // G4: 17 digits for exact IEEE-754 double round-trip.
     output << "# focus_reference_value_m: "
-           << std::scientific << std::setprecision(12)
+           << std::scientific << std::setprecision(17)
            << focus.focus_reference_value << "\n";
     output << "# focus_metric_value_m: "
-           << std::scientific << std::setprecision(12)
+           << std::scientific << std::setprecision(17)
            << focus.focus_metric_value << "\n";
     output << "index,reference_value_m,metric_name,metric_value_m,point_count,is_focus\n";
 
@@ -116,7 +117,7 @@ ExportResult AnalysisReportExporter::exportFocusCurve(
         const auto& point = focus.curve.points[i];
 
         output << i << ','
-               << std::scientific << std::setprecision(12)
+               << std::scientific << std::setprecision(17)
                << point.reference_value << ','
                << focus.curve.metric_name << ','
                << point.metric_value << ','

@@ -123,7 +123,9 @@ ExportResult VisualizationDataExporter::exportTrajectoryPreview(
     output << "trajectory_index,sample_index,time_s,x_m,y_m,z_m,"
               "edep_MeV,edep_eV,kinE_MeV,momx_MeV,momy_MeV,momz_MeV,dose_Gy\n";
 
-    output << std::scientific << std::setprecision(12);
+    // G4: 17 significant digits guarantee exact IEEE-754 double round-trip.
+    // 12 digits (prior value) loses ~5 ULP, causing non-zero memcmp on reload.
+    output << std::scientific << std::setprecision(17);
 
     const auto trajectory_indices = evenlySpacedIndices(
         dataset.trajectories.size(),
@@ -200,7 +202,9 @@ ExportResult VisualizationDataExporter::exportFocalSlicePoints(
     output << "# This file may be downsampled for UI use.\n";
     output << "point_index,trajectory_index,sample_index,axial_position_m,u_m,v_m,x_m,y_m,z_m\n";
 
-    output << std::scientific << std::setprecision(12);
+    // G4: 17 significant digits guarantee exact IEEE-754 double round-trip.
+    // 12 digits (prior value) loses ~5 ULP, causing non-zero memcmp on reload.
+    output << std::scientific << std::setprecision(17);
 
     const auto point_indices = evenlySpacedIndices(slice.points.size(), max_points);
 
@@ -256,7 +260,9 @@ ExportResult VisualizationDataExporter::exportEnvelopeRings(
     output << "# BeamLabStudio envelope rings for UI visualization\n";
     output << "slice_index,ring_point_index,reference_axial_m,axial_position_m,u_m,v_m,x_m,y_m,z_m\n";
 
-    output << std::scientific << std::setprecision(12);
+    // G4: 17 significant digits guarantee exact IEEE-754 double round-trip.
+    // 12 digits (prior value) loses ~5 ULP, causing non-zero memcmp on reload.
+    output << std::scientific << std::setprecision(17);
 
     for (const auto& envelope : envelopes) {
         if (!envelope.valid) {
@@ -321,7 +327,9 @@ ExportResult VisualizationDataExporter::exportTrajectoryPolylines(
 
     output << "# BeamLabStudio trajectory polylines (world coordinates)\n";
     output << "# One 'l' entry per trajectory. Vertex order matches trajectory time order.\n";
-    output << std::scientific << std::setprecision(12);
+    // G4: 17 significant digits guarantee exact IEEE-754 double round-trip.
+    // 12 digits (prior value) loses ~5 ULP, causing non-zero memcmp on reload.
+    output << std::scientific << std::setprecision(17);
 
     const auto trajectory_indices = evenlySpacedIndices(
         dataset.trajectories.size(),
