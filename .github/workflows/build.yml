@@ -1,15 +1,53 @@
-name: Build & Test
+name: CI
 on: [push, pull_request]
+
 jobs:
-  build:
+  build-and-test:
+    strategy:
+      matrix:
+        build-type: [Debug, Release]
+        compiler: [gcc-13, clang-18]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install deps
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ qt6-base-dev libgl1-mesa-dev
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++-13 clang-18 \
+            qt6-base-dev libgl1-mesa-dev lcov clang-format-18
+
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBEAMLAB_ENABLE_QT_UI=ON
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
+            -DBEAMLAB_ENABLE_QT_UI=ON \
+            -DBEAMLAB_ENABLE_PERFORMANCE_TESTS=ON \
+            -DBEAMLAB_CXX_COMPILER=${{ matrix.compiler }}
+
       - name: Build
         run: cmake --build build -j$(nproc)
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
+
+      - name: Unit Tests
+        run: ctest --test-dir build --output-on-failure -j$(nproc)
+
+      - name: Integration Tests
+        if: matrix.build-type == 'Release'
+        run: ctest --test-dir build -L integration --output-on-failure
+
+      - name: Coverage (Debug only)
+        if: matrix.build-type == 'Debug' && matrix.compiler == 'gcc-13'
+        run: |
+          cmake -B build -DENABLE_COVERAGE=ON
+          cmake --build build
+          cmake --build build --target coverage
+
+      - name: Performance Benchmarks
+        if: matrix.build-type == 'Release'
+        run: ctest --test-dir build -L performance --output-on-failure --verbose
+
+      - name: Lint (clang-format)
+        run: |
+          find src/ tests/ -name '*.cpp' -o -name '*.h' \
+            | xargs clang-format-18 --dry-run --Werror 2>&1 \
+            | grep -v "^(Would be formatted)" || echo "Lint passed"

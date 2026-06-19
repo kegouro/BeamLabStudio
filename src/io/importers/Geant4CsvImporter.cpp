@@ -49,30 +49,41 @@ namespace beamlab::io {
 namespace {
 
 struct Geant4Columns {
-    std::size_t x_cm{0};
-    std::size_t y_cm{1};
-    std::size_t z_cm{2};
-    std::size_t edep_MeV{3};
-    std::size_t kinE_MeV{4};
-    std::size_t momx_MeV{5};
-    std::size_t momy_MeV{6};
-    std::size_t momz_MeV{7};
-    std::size_t time_ns{8};
-    std::size_t trackID{9};
-    std::size_t parentID{10};
-    std::size_t eventID{11};
-    std::size_t pdg{12};
-    std::size_t particleName{13};
-    std::size_t source_file{14};
+    int x_cm{-1};
+    int y_cm{-1};
+    int z_cm{-1};
+    int edep_MeV{-1};
+    int kinE_MeV{-1};
+    int momx_MeV{-1};
+    int momy_MeV{-1};
+    int momz_MeV{-1};
+    int time_ns{-1};
+    int trackID{-1};
+    int parentID{-1};
+    int eventID{-1};
+    int pdg{-1};
+    int particleName{-1};
+    int source_file{-1};
     bool valid{false};
 };
 
-constexpr std::array<const char*, 15> kExpectedHeader = {
-    "x_cm", "y_cm", "z_cm", "edep_MeV", "kinE_MeV",
-    "momx_MeV", "momy_MeV", "momz_MeV", "time_ns",
-    "trackID", "parentID", "eventID", "pdg",
-    "particleName", "source_file"
-};
+constexpr std::array<std::pair<const char*, int Geant4Columns::*>, 15> kColumnMap = {{
+    {"x_cm",   &Geant4Columns::x_cm},
+    {"y_cm",   &Geant4Columns::y_cm},
+    {"z_cm",   &Geant4Columns::z_cm},
+    {"edep_mev",  &Geant4Columns::edep_MeV},
+    {"kine_mev",  &Geant4Columns::kinE_MeV},
+    {"momx_mev",  &Geant4Columns::momx_MeV},
+    {"momy_mev",  &Geant4Columns::momy_MeV},
+    {"momz_mev",  &Geant4Columns::momz_MeV},
+    {"time_ns", &Geant4Columns::time_ns},
+    {"trackid", &Geant4Columns::trackID},
+    {"parentid",&Geant4Columns::parentID},
+    {"eventid", &Geant4Columns::eventID},
+    {"pdg",     &Geant4Columns::pdg},
+    {"particlename", &Geant4Columns::particleName},
+    {"source_file", &Geant4Columns::source_file},
+}};
 
 std::string trim(std::string text)
 {
@@ -158,17 +169,29 @@ Geant4Columns detectColumns(const std::vector<std::string>& header)
 {
     Geant4Columns columns{};
 
-    if (header.size() < 15) {
-        return columns;
-    }
+    if (header.size() < 3) return columns;  // Need at least x,y,z
 
-    for (std::size_t i = 0; i < 15; ++i) {
-        if (lower(trim(header[i])) != lower(kExpectedHeader[i])) {
-            return columns;
+    // Build flexible mapping: for each column name, find its index
+    for (std::size_t i = 0; i < header.size(); ++i) {
+        auto name = lower(trim(header[i]));
+
+        for (const auto& [cname, member] : kColumnMap) {
+            if (name == cname) {
+                columns.*member = static_cast<int>(i);
+                break;
+            }
         }
     }
 
-    columns.valid = true;
+    // Minimum required: x, y, z, edep
+    if (columns.x_cm >= 0 &&
+        columns.y_cm >= 0 &&
+        columns.z_cm >= 0) {
+
+        // If edep is missing but we have at least 3 columns, still valid — just fill edep=0
+        columns.valid = true;
+    }
+
     return columns;
 }
 
@@ -310,12 +333,13 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         }
     }
 
-    if (!columns.valid) {
+        if (!columns.valid) {
         result.success = false;
         result.error = beamlab::core::Error{
             .code = beamlab::core::StatusCode::ParseError,
             .severity = beamlab::core::Severity::Error,
-            .message = "Geant4 header does not match expected 15-column format: x_cm y_cm z_cm edep_MeV kinE_MeV momx_MeV momy_MeV momz_MeV time_ns trackID parentID eventID pdg particleName source_file",
+            .message = "Geant4 header not recognised — need at least x, y, z columns. Detected columns: "
+                        + std::to_string(header.size()),
             .details = file_path
         };
         return result;
@@ -378,39 +402,51 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
 
         const auto tokens = splitLine(line, schema.delimiter);
 
-        constexpr std::size_t required_size = 15;
+        // Minimum required columns based on detected mapping
+        int maxNeeded = columns.x_cm;
+        if (columns.y_cm > maxNeeded) maxNeeded = columns.y_cm;
+        if (columns.z_cm > maxNeeded) maxNeeded = columns.z_cm;
+        int required_size = static_cast<std::size_t>(maxNeeded + 1);
 
-        if (tokens.size() < required_size) {
+        if (static_cast<int>(tokens.size()) <= maxNeeded) {
             recordDrop("too few columns", line_number);
             continue;
         }
 
-        const auto x_cm = parseDouble(tokens[columns.x_cm]);
-        const auto y_cm = parseDouble(tokens[columns.y_cm]);
-        const auto z_cm = parseDouble(tokens[columns.z_cm]);
-        const auto time_ns = parseDouble(tokens[columns.time_ns]);
-        const auto track_id = parseInteger(tokens[columns.trackID]);
-        const auto event_id = parseInteger(tokens[columns.eventID]);
+        const auto x_cm = parseDouble(tokens[static_cast<std::size_t>(columns.x_cm)]);
+        const auto y_cm = parseDouble(tokens[static_cast<std::size_t>(columns.y_cm)]);
+        const auto z_cm = parseDouble(tokens[static_cast<std::size_t>(columns.z_cm)]);
 
-        if (!x_cm || !y_cm || !z_cm || !time_ns || !track_id || !event_id) {
-            recordDrop("non-finite or non-numeric mandatory field", line_number);
+        if (!x_cm || !y_cm || !z_cm) {
+            recordDrop("non-finite or non-numeric mandatory x,y,z field", line_number);
             continue;
         }
 
-        if (*time_ns < 0.0) {
+        // Optional fields — use helper that handles -1 index (missing column)
+        const auto safeTok = [&](int idx) -> std::string {
+            if (idx < 0 || static_cast<std::size_t>(idx) >= tokens.size()) return "";
+            return tokens[static_cast<std::size_t>(idx)];
+        };
+
+        const auto time_ns = parseDouble(safeTok(columns.time_ns));
+        const auto track_id = parseInteger(safeTok(columns.trackID));
+        const auto event_id = parseInteger(safeTok(columns.eventID));
+        const auto pdg_val = parseInteger(safeTok(columns.pdg));
+        std::string particle_name = safeTok(columns.particleName);
+        std::string source_file = safeTok(columns.source_file);
+
+        // Use defaults for missing optional values
+        double time_ns_val = time_ns.value_or(0.0);
+        int64_t track_val = track_id.value_or(0);
+        int64_t event_val = event_id.value_or(0);
+        int64_t pdg_int = pdg_val.value_or(0);
+
+        if (time_ns_val < 0.0) {
             recordDrop("time_ns < 0", line_number);
             continue;
         }
 
-        const auto pdg_val = parseInteger(tokens[columns.pdg]);
-        std::string particle_name = tokens[columns.particleName];
-
-        if (!pdg_val) {
-            recordDrop("pdg not parseable", line_number);
-            continue;
-        }
-
-        const auto unique_id_opt = makeUniqueTrajectoryId(*event_id, *track_id);
+        const auto unique_id_opt = makeUniqueTrajectoryId(event_val, track_val);
         if (!unique_id_opt) {
             recordDrop("trackID exceeds kMaxTracksPerEvent or eventID overflow", line_number);
             continue;
@@ -492,14 +528,14 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         };
 
         if (trajectory.samples.empty()) {
-            trajectory.particle.event_id        = static_cast<int>(*event_id);
-            trajectory.particle.track_id        = static_cast<int>(*track_id);
+            trajectory.particle.event_id        = static_cast<int>(event_val);
+            trajectory.particle.track_id        = static_cast<int>(track_val);
             trajectory.particle.initial_kinE_MeV = sample.kinE_MeV;
             trajectory.particle.particle_type   = particle_name;
 
-            const int pdg_abs = *pdg_val < 0 ? -static_cast<int>(*pdg_val)
-                                             : static_cast<int>(*pdg_val);
-            trajectory.particle.charge = (*pdg_val < 0) ? 1.0 : -1.0;
+            const int pdg_abs = pdg_int < 0 ? -static_cast<int>(pdg_int)
+                                             : static_cast<int>(pdg_int);
+            trajectory.particle.charge = (pdg_int < 0) ? 1.0 : -1.0;
             if (pdg_abs == 13) {
                 trajectory.particle.mass_MeV = 105.6583755;
             } else if (pdg_abs == 11) {
@@ -583,39 +619,60 @@ uint64_t Geant4CsvImporter::importStreaming(
     uint64_t sampleCount = 0;
     std::string currentTrajId;
 
+    // Compute max token index needed
+    int maxTokenIdx = 0;
+    for (int idx : {columns.x_cm, columns.y_cm, columns.z_cm,
+                    columns.edep_MeV, columns.kinE_MeV,
+                    columns.momx_MeV, columns.momy_MeV, columns.momz_MeV,
+                    columns.time_ns, columns.trackID, columns.eventID,
+                    columns.parentID, columns.pdg}) {
+        if (idx > maxTokenIdx) maxTokenIdx = idx;
+    }
+
     while (std::getline(input, line)) {
         ++line_number;
         if (line.empty() || line[0] == '#') continue;
 
-        // Fast inline token extraction — zero string allocation per row
-        const char* buf = line.c_str();
-        const char* t[15]{};
-        int ti = 0;
-        t[0] = buf;
-        for (const char* p = buf; *p && ti < 15; ++p) {
-            if (*p == delimiter) {
-                const_cast<char*>(p)[0] = '\0';
-                t[++ti] = p + 1;
+        // Tokenise into strings (variable column count)
+        std::vector<std::string> tokens;
+        {
+            const char* p = line.c_str();
+            const char* start = p;
+            for (; *p; ++p) {
+                if (*p == delimiter) {
+                    tokens.emplace_back(start, static_cast<std::size_t>(p - start));
+                    start = p + 1;
+                }
             }
+            tokens.emplace_back(start, static_cast<std::size_t>(p - start));
         }
-        if (ti < 14) continue;
+        if (static_cast<int>(tokens.size()) <= maxTokenIdx) continue;
 
-        double x_cm_v=0, y_cm_v=0, z_cm_v=0, edep_v=0, kine_v=0, time_ns_v=0;
-        int64_t track_id_v=0, event_id_v=0, pdg_v=0;
+        double x_v=0, y_v=0, z_v=0, edep_v=0, kine_v=0, time_v=0;
+        double mx=0, my=0, mz=0;
+        int64_t track_v=0, event_v=0;
 
-        if (!fastParseDouble(t[0], x_cm_v) ||
-            !fastParseDouble(t[1], y_cm_v) ||
-            !fastParseDouble(t[2], z_cm_v) ||
-            !fastParseDouble(t[8], time_ns_v) ||
-            !fastParseInt64(t[9], track_id_v) ||
-            !fastParseInt64(t[11], event_id_v) ||
-            !fastParseInt64(t[12], pdg_v))
+        auto tok = [&](int idx) -> const std::string& {
+            static const std::string empty;
+            return (idx >= 0 && idx < static_cast<int>(tokens.size()))
+                ? tokens[static_cast<std::size_t>(idx)] : empty;
+        };
+
+        if (!fastParseDouble(tok(columns.x_cm).c_str(), x_v) ||
+            !fastParseDouble(tok(columns.y_cm).c_str(), y_v) ||
+            !fastParseDouble(tok(columns.z_cm).c_str(), z_v))
             continue;
 
-        fastParseDouble(t[3], edep_v);
-        fastParseDouble(t[4], kine_v);
+        fastParseDouble(tok(columns.edep_MeV).c_str(), edep_v);
+        fastParseDouble(tok(columns.kinE_MeV).c_str(), kine_v);
+        fastParseDouble(tok(columns.time_ns).c_str(), time_v);
+        fastParseDouble(tok(columns.momx_MeV).c_str(), mx);
+        fastParseDouble(tok(columns.momy_MeV).c_str(), my);
+        fastParseDouble(tok(columns.momz_MeV).c_str(), mz);
+        fastParseInt64(tok(columns.trackID).c_str(), track_v);
+        fastParseInt64(tok(columns.eventID).c_str(), event_v);
 
-        std::string trajId = std::to_string(event_id_v) + "_" + std::to_string(track_id_v);
+        std::string trajId = std::to_string(event_v) + "_" + std::to_string(track_v);
         if (trajId != currentTrajId) {
             if (!currentTrajId.empty()) storage.endTrajectory();
             storage.beginTrajectory(trajId);
@@ -623,16 +680,12 @@ uint64_t Geant4CsvImporter::importStreaming(
         }
 
         beamlab::data::TrajectorySample s{};
-        s.position_m = {x_cm_v * 0.01, y_cm_v * 0.01, z_cm_v * 0.01};
-        s.time_s = time_ns_v * 1.0e-9;
+        s.position_m = {x_v * 0.01, y_v * 0.01, z_v * 0.01};
+        s.time_s = time_v * 1.0e-9;
         s.edep_MeV = edep_v;
         s.edep_eV = edep_v * 1.0e6;
         s.kinE_MeV = kine_v;
-        { double mx=0, my=0, mz=0;
-          fastParseDouble(t[5], mx);
-          fastParseDouble(t[6], my);
-          fastParseDouble(t[7], mz);
-          s.momentum_MeV = {mx, my, mz}; }
+        s.momentum_MeV = {mx, my, mz};
         storage.addSample(s);
         ++sampleCount;
 

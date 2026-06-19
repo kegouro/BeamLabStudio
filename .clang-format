@@ -1,0 +1,73 @@
+# ── BeamLabStudio C++ Style ──────────────────────────────────────────
+# Based on Google style with adaptations for scientific C++17.
+BasedOnStyle: Google
+
+# Columns
+ColumnLimit: 100
+IndentWidth: 4
+ContinuationIndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Access modifiers
+AccessModifierOffset: -4
+
+# Braces
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterFunction: true
+  AfterNamespace: false
+  AfterEnum: false
+  AfterStruct: true
+  BeforeCatch: true
+  BeforeElse: true
+
+# Functions
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: Inline
+
+# Templates
+AlwaysBreakTemplateDeclarations: Yes
+
+# Includes
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex:           '^<.*\.h>'
+    Priority:        1
+  - Regex:           '^".*platform/'
+    Priority:        2
+  - Regex:           '^".*services/'
+    Priority:        3
+  - Regex:           '^".*domain/'
+    Priority:        4
+  - Regex:           '^".*core/'
+    Priority:        5
+  - Regex:           '^".*data/'
+    Priority:        6
+  - Regex:           '^".*ui/'
+    Priority:        7
+  - Regex:           '^".*analysis/'
+    Priority:        8
+  - Regex:           '^".*io/'
+    Priority:        9
+  - Regex:           '^<.*>'
+    Priority:        10
+  - Regex:           '^"'
+    Priority:        11
+
+# Pointers
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+# Namespaces
+CompactNamespaces: false
+NamespaceIndentation: None
+
+# Comments
+ReflowComments: true
+AlignTrailingComments: true
+
+# Qt-specific
+QtForTests: false

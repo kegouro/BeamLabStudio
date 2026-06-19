@@ -32,6 +32,8 @@ public:
     std::vector<beamlab::data::TrajectorySample> getAxialRange(
         double zMin, double zMax) const override;
 
+    std::pair<double, double> getZRange() const override;
+
 private:
     std::string currentTrajectoryId_;
     std::vector<beamlab::data::TrajectorySample> allSamples_;

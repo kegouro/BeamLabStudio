@@ -161,23 +161,20 @@ las fórmulas implementadas.</p>
 <div class="source">⟵ src/io/normalization/AxisFrameResolver.cpp</div>
 <p>El marco de referencia (axis frame) transforma coordenadas de laboratorio</p>
 <p>(x, y, z) a coordenadas del haz (s, u, v), donde s es el eje longitudinal.</p>
-<h3>Detección automática del eje longitudinal</h3>
-<p>Se calcula el rango de cada coordenada sobre todos los puntos del dataset:</p>
-<code class="formula">Rₓ = max(x) − min(x),   R_y = max(y) − min(y),   R_z = max(z) − min(z)</code>
-<p>El eje con mayor rango es el eje longitudinal del haz:</p>
-<code class="formula">ê_s = ê_z  si  R_z ≥ R_x  y  R_z ≥ R_y   (caso más común en Geant4)</code>
-<h3>Signo del eje longitudinal</h3>
-<p>Se suma el vector (último_punto − primer_punto) de cada trayectoria:</p>
-<code class="formula">Σ_z = Σᵢ ( z_final_i − z_inicial_i )</code>
-<code class="formula">signo(ê_s) = +1  si  Σ_z ≥ 0,  −1  si  Σ_z &amp;lt; 0</code>
-<span class="note">ℹ Esto garantiza que ê_s apunta en la dirección de propagación del haz.</span>
-<h3>Marco resultante</h3>
-<p>Para eje Z positivo (caso del CSV de muones):</p>
-<code class="formula">ê_s = (0, 0, +1),   ê_u = (1, 0, 0),   ê_v = (0, 1, 0)</code>
-<h3>Confianza del marco</h3>
-<code class="formula">confidence = R_max / (Rₓ + R_y + R_z)   ∈ [1/3, 1]</code>
-<span class="note">ℹ confidence → 1 cuando el haz es puramente axial; → 1/3 cuando las tres</span>
-<span class="note">ℹ extensiones son iguales (ambigüedad).</span>
+<h3>Detección automática del eje longitudinal (PCA sobre desplazamientos)</h3>
+<p>Para cada trayectoria con ≥2 muestras, se computan vectores de paso</p>
+<p>Δ_i = pos_{i+1} − pos_i.</p>
+<p>Sobre todos los Δ se construye la matriz de covarianza 3×3:</p>
+<code class="formula">Σ = (1/N) Σ_i (Δ_i − Δ̄)(Δ_i − Δ̄)ᵀ</code>
+<p>PCA: se calcula el eigenvector dominante ê₁ (λ₁ ≥ λ₂ ≥ λ₃).</p>
+<p>La confianza del eje es la fracción de varianza explicada:</p>
+<code class="formula">confidence = λ₁ / (λ₁ + λ₂ + λ₃) = λ₁ / tr(Σ)   ∈ [1/3, 1]</code>
+<p>El signo de ê₁ se ajusta para que apunte en la dirección de propagación:</p>
+<code class="formula">signo = +1 si (Δ̄ · ê₁) ≥ 0, −1 en caso contrario.</code>
+<h3>Fallback por extensión espacial</h3>
+<p>Si hay menos de 3 vectores de desplazamiento total, se usa el algoritmo</p>
+<p>de rango espacial: ê_s = eje de mayor rango (R_max), con confianza</p>
+<p>confidence = R_max / (R_x + R_y + R_z).</p>
 <hr/>
 <h2 id="mod-Normalization">Normalización del Dataset — Resúmenes por Trayectoria</h2>
 <div class="source">⟵ src/io/normalization/DatasetNormalizer.cpp</div>
@@ -195,6 +192,6 @@ las fórmulas implementadas.</p>
 <code class="formula">E_entry = kinE_MeV del primer paso (después de ordenar por t)</code>
 <code class="formula">E_exit  = kinE_MeV del último paso</code>
 <span class="note">ℹ E_entry ≈ E_gun para el primer paso del primario en Geant4.</span>
-<p class="timestamp">Generado automáticamente el 2026-05-20 13:41:08 a partir de los bloques //!@math en el código fuente.</p>
+<p class="timestamp">Generado automáticamente el 2026-05-24 04:01:42 a partir de los bloques //!@math en el código fuente.</p>
 </body>
 </html>

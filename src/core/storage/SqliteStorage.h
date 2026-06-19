@@ -54,6 +54,7 @@ private:
     beamlab::data::TrajectorySample rowToSample(sqlite3_stmt* stmt) const;
 
     sqlite3* db_{nullptr};
+    sqlite3_stmt* insertStmt_{nullptr};
     std::string dbPath_;
     std::string currentTrajectoryId_;
     uint64_t pendingCount_{0};

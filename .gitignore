@@ -48,3 +48,6 @@ graphify-out/
 
 # LibreOffice / office locks
 .~lock.*#
+
+# Large demo datasets (not versioned — keep local or use Git-LFS)
+tests/muon_tracks.csv

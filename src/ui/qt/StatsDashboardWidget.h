@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui/qt/dockable/IDockableWidget.h"
+
 #include <QWidget>
 #include <QString>
 #include <QStringList>
@@ -19,9 +21,16 @@ class InteractiveGraphicsView;
 
 namespace beamlab::ui {
 
-class StatsDashboardWidget final : public QWidget {
+class StatsDashboardWidget final : public QWidget, public qt::IDockableWidget {
 public:
     explicit StatsDashboardWidget(QWidget* parent = nullptr);
+
+    // ── IDockableWidget ───────────────────────────────────────────
+    QString title() const override { return QStringLiteral("Statistics"); }
+    QString id() const override { return QStringLiteral("stats"); }
+    QWidget* widget() override { return this; }
+    Qt::DockWidgetArea preferredArea() const override
+        { return Qt::RightDockWidgetArea; }
 
     void loadRunFromManifest(const QString& manifest_path);
     bool exportChartsPng(const QString& directory, QString* error = nullptr) const;

@@ -1,0 +1,66 @@
+name: Conventional Commits
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  check-title:
+    name: Check PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Conventional commit pattern.
+          PATTERN='^(feat|fix|docs|style|refactor|perf|test|chore|build|ci|revert)(\([a-z_]+\))?!?:\s.*'
+          if [[ ! "$TITLE" =~ $PATTERN ]]; then
+            echo "❌ PR title does not follow Conventional Commits:"
+            echo "   $TITLE"
+            echo ""
+            echo "Expected format: type(scope): description"
+            echo "  types: feat, fix, docs, style, refactor, perf, test, chore, build, ci"
+            echo "  scopes: ui, domain, services, platform, analysis, storage, scripting, io"
+            echo ""
+            echo "Example: feat(services): add Parquet export support"
+            exit 1
+          fi
+          echo "✅ PR title follows Conventional Commits"
+
+  check-commits:
+    name: Check commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        run: |
+          COMMITS=$(git log origin/${{ github.base_ref }}..HEAD --format="%s")
+          FAILED=0
+          PATTERN='^(feat|fix|docs|style|refactor|perf|test|chore|build|ci|revert)(\([a-z_]+\))?!?:\s.*'
+
+          echo ">>> Checking $(echo "$COMMITS" | wc -l) commit(s)..."
+
+          while IFS= read -r line; do
+            if [[ ! "$line" =~ $PATTERN ]]; then
+              echo "❌ Invalid: $line"
+              FAILED=1
+            else
+              echo "✅ $line"
+            fi
+          done <<< "$COMMITS"
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "All commits must follow Conventional Commits format:"
+            echo "  type(scope): description"
+            echo "  types: feat, fix, docs, style, refactor, perf, test, chore"
+            echo ""
+            exit 1
+          fi
+          echo "✅ All commits follow Conventional Commits"

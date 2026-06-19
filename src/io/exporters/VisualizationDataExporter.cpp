@@ -133,6 +133,10 @@ ExportResult VisualizationDataExporter::exportTrajectoryPreview(
     for (const auto trajectory_index : trajectory_indices) {
         const auto& trajectory = dataset.trajectories[trajectory_index];
 
+        if (trajectory.samples.size() < 2) {
+            continue;
+        }
+
         const auto sample_indices = evenlySpacedIndices(
             trajectory.samples.size(),
             max_samples_per_trajectory

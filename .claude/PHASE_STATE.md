@@ -20,7 +20,11 @@ C1 SOBP · C2 DVH · C3 LET/RBE · C4 Panel validación NIST · P1 Export cient�
 Backlog: Comparador multi-haz.
 
 ## Worktrees activos
-(ninguno aún)
+(ninguno)
+
+## Siguiente paso
+F0 ✅ commiteado (`09c62fc`). **Esperando que el usuario commitee su WIP** (61 untracked + 19 modified: módulos domain/services/platform/scripting nuevos + presenters MVP) como base estable.
+Luego: arrancar **F1a ∥ F2 ∥ F3** (decidir worktrees paralelos vs secuencial). El working tree compila y pasa 98/98 con el WIP presente.
 
 ## Reglas de seguridad
 - Merge a `main` solo al final de F6.

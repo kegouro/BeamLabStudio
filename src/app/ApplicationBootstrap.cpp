@@ -507,9 +507,19 @@ int ApplicationBootstrap::run(int argc, char** argv)
         beamlab::analysis::SurfaceBuildParameters caustic_parameters{};
         caustic_parameters.resample_point_count = options.caustic_resample_points;
 
+        // Build caustic surface from focal window only (matching envelope proxy semantics:
+        // the surface represents the beam shape near focus, not the full detector traversal).
+        std::vector<beamlab::data::BeamEnvelope> focal_envelopes{};
+        focal_envelopes.reserve(focal_window_indices.size());
+        for (const auto frame_index : focal_window_indices) {
+            if (frame_index < envelopes.size()) {
+                focal_envelopes.push_back(envelopes[frame_index]);
+            }
+        }
+
         const beamlab::analysis::SurfaceBuilder caustic_builder{};
         const auto caustic_surface =
-            caustic_builder.build(envelopes, dataset.axis_frame, caustic_parameters);
+            caustic_builder.build(focal_envelopes, dataset.axis_frame, caustic_parameters);
 
         auto focal_envelope_it = std::find_if(
             envelopes.begin(),

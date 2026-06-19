@@ -1,0 +1,35 @@
+{
+  "_description": "Quick inspection — low resolution, fast turnaround",
+  "_extends": "default_analysis",
+  "storage": {
+    "sqlite_threshold_mb": 50
+  },
+  "analysis": {
+    "binning": {
+      "axial_bins": 101,
+      "half_window_frames": 3
+    },
+    "envelope": {
+      "proxy_resample_points": 48,
+      "quantile": 0.95
+    },
+    "focus": {
+      "smooth_curve": false
+    },
+    "surfaces": {
+      "lens_boundary_points": 64,
+      "lens_radial_layers": 8
+    }
+  },
+  "preview": {
+    "trajectories": 1000,
+    "samples_per_trajectory": 50,
+    "slice_points": 2000
+  },
+  "export": {
+    "png": {
+      "plot_width": 1280,
+      "plot_height": 720
+    }
+  }
+}

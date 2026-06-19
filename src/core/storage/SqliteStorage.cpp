@@ -16,7 +16,7 @@ SqliteStorage::SqliteStorage(const std::string& dbPath)
     if (sqlite3_open(dbPath_.c_str(), &db_) != SQLITE_OK) {
         throw std::runtime_error("Failed to open SQLite database: " + dbPath_);
     }
-    exec("PRAGMA journal_mode=OFF");        // No journal during bulk import (fast, temp file)
+    exec("PRAGMA journal_mode=MEMORY");     // Fast, journal in RAM (safe for temp files)
     exec("PRAGMA synchronous=OFF");         // Fast bulk import — restored in finalizeIndices()
     exec("PRAGMA cache_size=-8000");        // 8 MB page cache (minimal, for < 2 GB RAM)
     exec("PRAGMA locking_mode=EXCLUSIVE");   // Single writer, no lock overhead
@@ -26,6 +26,7 @@ SqliteStorage::SqliteStorage(const std::string& dbPath)
 SqliteStorage::~SqliteStorage()
 {
     flush();
+    if (insertStmt_) sqlite3_finalize(insertStmt_);
     if (db_) sqlite3_close(db_);
 }
 
@@ -46,6 +47,11 @@ void SqliteStorage::ensureTable()
          " time_s REAL NOT NULL DEFAULT 0.0,"
          " dose_Gy REAL NOT NULL DEFAULT 0.0)");
     // Indices created AFTER bulk import via finalizeIndices()
+
+    const char* sql = "INSERT INTO samples(trajectory_id,step_index,x_m,y_m,z_m,"
+                      "edep_MeV,kinE_MeV,momx_MeV,momy_MeV,momz_MeV,time_s,dose_Gy) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
+    sqlite3_prepare_v2(db_, sql, -1, &insertStmt_, nullptr);
 }
 
 void SqliteStorage::finalizeIndices()
@@ -88,32 +94,24 @@ void SqliteStorage::beginTrajectory(const std::string& trajectoryId)
 
 void SqliteStorage::addSample(const beamlab::data::TrajectorySample& sample)
 {
-    static sqlite3_stmt* stmt = nullptr;
-    if (!stmt) {
-        const char* sql = "INSERT INTO samples(trajectory_id,step_index,x_m,y_m,z_m,"
-                          "edep_MeV,kinE_MeV,momx_MeV,momy_MeV,momz_MeV,time_s,dose_Gy) "
-                          "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
-        sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr);
-    }
-
     const char* trajId = currentTrajectoryId_.c_str();
     const int64_t stepIdx = static_cast<int64_t>(pendingCount_);
 
-    sqlite3_bind_text(stmt, 1, trajId, -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt, 2, stepIdx);
-    sqlite3_bind_double(stmt, 3, sample.position_m.x);
-    sqlite3_bind_double(stmt, 4, sample.position_m.y);
-    sqlite3_bind_double(stmt, 5, sample.position_m.z);
-    sqlite3_bind_double(stmt, 6, sample.edep_MeV);
-    sqlite3_bind_double(stmt, 7, sample.kinE_MeV);
-    sqlite3_bind_double(stmt, 8, sample.momentum_MeV.x);
-    sqlite3_bind_double(stmt, 9, sample.momentum_MeV.y);
-    sqlite3_bind_double(stmt, 10, sample.momentum_MeV.z);
-    sqlite3_bind_double(stmt, 11, sample.time_s);
-    sqlite3_bind_double(stmt, 12, sample.dose_Gy);
+    sqlite3_bind_text(insertStmt_, 1, trajId, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(insertStmt_, 2, stepIdx);
+    sqlite3_bind_double(insertStmt_, 3, sample.position_m.x);
+    sqlite3_bind_double(insertStmt_, 4, sample.position_m.y);
+    sqlite3_bind_double(insertStmt_, 5, sample.position_m.z);
+    sqlite3_bind_double(insertStmt_, 6, sample.edep_MeV);
+    sqlite3_bind_double(insertStmt_, 7, sample.kinE_MeV);
+    sqlite3_bind_double(insertStmt_, 8, sample.momentum_MeV.x);
+    sqlite3_bind_double(insertStmt_, 9, sample.momentum_MeV.y);
+    sqlite3_bind_double(insertStmt_, 10, sample.momentum_MeV.z);
+    sqlite3_bind_double(insertStmt_, 11, sample.time_s);
+    sqlite3_bind_double(insertStmt_, 12, sample.dose_Gy);
 
-    sqlite3_step(stmt);
-    sqlite3_reset(stmt);
+    sqlite3_step(insertStmt_);
+    sqlite3_reset(insertStmt_);
     ++pendingCount_;
 }
 

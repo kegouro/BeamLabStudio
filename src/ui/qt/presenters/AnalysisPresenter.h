@@ -34,7 +34,8 @@ public:
 signals:
     void progressUpdated(int percent, const QString& stage);
     void logLineReady(const QString& line);
-    void analysisFinished(bool success, const QString& message);
+    void analysisFinished(bool success, const QString& message,
+                          const QString& outputDir);
     void analysisStarted();
 
 private:

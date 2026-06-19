@@ -5,6 +5,8 @@
 namespace beamlab::analysis {
 
 struct FrameStatistics {
+    bool valid{true};
+
     double reference_value{0.0};
     double reference_min_value{0.0};
     double reference_max_value{0.0};

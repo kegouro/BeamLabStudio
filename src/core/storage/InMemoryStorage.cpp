@@ -68,9 +68,21 @@ std::vector<beamlab::data::TrajectorySample> InMemoryStorage::getBatch(
     uint64_t offset, uint64_t count) const
 {
     if (offset >= allSamples_.size()) return {};
-    const auto end = std::min(offset + count, allSamples_.size());
+    const auto end = std::min<uint64_t>(offset + count, allSamples_.size());
     return {allSamples_.begin() + static_cast<int64_t>(offset),
             allSamples_.begin() + static_cast<int64_t>(end)};
+}
+
+std::pair<double, double> InMemoryStorage::getZRange() const
+{
+    if (allSamples_.empty()) return {0.0, 0.0};
+    double zMin = allSamples_[0].position_m.z;
+    double zMax = zMin;
+    for (const auto& s : allSamples_) {
+        if (s.position_m.z < zMin) zMin = s.position_m.z;
+        if (s.position_m.z > zMax) zMax = s.position_m.z;
+    }
+    return {zMin, zMax};
 }
 
 std::vector<beamlab::data::TrajectorySample> InMemoryStorage::getAxialRange(

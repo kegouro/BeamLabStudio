@@ -1,0 +1,34 @@
+{
+  "_description": "Full analysis — high resolution, publish-ready output",
+  "_extends": "default_analysis",
+  "analysis": {
+    "binning": {
+      "axial_bins": 1001,
+      "half_window_frames": 7
+    },
+    "envelope": {
+      "proxy_resample_points": 256,
+      "angular_sectors": 256,
+      "quantile": 0.85
+    },
+    "focus": {
+      "smooth_curve": true
+    },
+    "surfaces": {
+      "lens_boundary_points": 256,
+      "lens_radial_layers": 32,
+      "lens_center_thickness_m": 0.0035,
+      "lens_edge_thickness_m": 0.0006
+    }
+  },
+  "export": {
+    "mp4": {
+      "frame_count": 240,
+      "framerate": 60
+    },
+    "png": {
+      "plot_width": 3840,
+      "plot_height": 2160
+    }
+  }
+}
