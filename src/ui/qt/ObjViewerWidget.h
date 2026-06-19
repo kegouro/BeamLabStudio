@@ -1,5 +1,7 @@
 #pragma once
 
+#include "biosim/ui/qt/EnergyColorMapper.h"
+
 #include <QPoint>
 #include <QRectF>
 #include <QString>
@@ -32,6 +34,9 @@ public:
 
     void setEnergyGradientEnabled(bool enabled);
     bool energyGradientEnabled() const;
+
+    // Select the active energy colour palette (default: BraggPeak).
+    void setActivePalette(beamlab::biosim::EnergyColorMapper::Palette palette);
 
     // Limit the number of polylines ('l' OBJ entries) rendered.
     // -1 = render all (default). 0 = render none.
@@ -85,7 +90,7 @@ private:
     void drawEnergyScaleBar(QPainter& painter,
                             double top_reserved,
                             double available_h) const;
-    static QColor energyToColor(double t);
+    [[nodiscard]] QColor energyToColor(double t) const;
 
     struct Polyline {
         std::vector<int> indices{};
@@ -101,6 +106,10 @@ private:
     double energy_min_{0.0};
     double energy_max_{1.0};
     bool energy_gradient_{false};
+
+    beamlab::biosim::EnergyColorMapper color_mapper_{};
+    beamlab::biosim::EnergyColorMapper::Palette active_palette_{
+        beamlab::biosim::EnergyColorMapper::Palette::BraggPeak};
 
     Vec3 center_{};
     Vec3 bounds_min_{};

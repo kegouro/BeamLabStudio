@@ -8,6 +8,7 @@
 #include <iostream>
 #include <sstream>
 
+
 namespace beamlab::ui {
 
 AnalysisPresenter::AnalysisPresenter(QObject* parent)
@@ -48,8 +49,10 @@ void AnalysisPresenter::runOnThread(const std::string& csvPath,
         std::vector<std::string> args = {"beamlab",
             "-i", csvPath,
             "-o", outputDir,
-            "--preview-trajectories", "10000",
-            "--preview-samples-per-trajectory", "200"
+            "--preview-trajectories",
+                std::to_string(kPreviewTrajectories),
+            "--preview-samples-per-trajectory",
+                std::to_string(kPreviewSamplesPerTraj)
         };
         std::vector<char*> argv;
         for (auto& a : args) argv.push_back(a.data());

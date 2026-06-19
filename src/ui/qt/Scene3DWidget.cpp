@@ -1,5 +1,6 @@
 #include "ui/qt/Scene3DWidget.h"
 
+#include <QDebug>
 #include <QFile>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -11,9 +12,7 @@
 #include <QWheelEvent>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -325,6 +324,15 @@ void Scene3DWidget::loadLayerEnergyCSV(const int layer_index, const QString& pat
     const std::size_t nv = layer.vertices.size();
     const std::size_t to_assign = std::min(nv, raw_energies.size());
 
+    // G3 guard: warn instead of silently truncating when sizes diverge.
+    // This happens when OBJ and CSV were generated with different subsampling.
+    if (raw_energies.size() != nv) {
+        qWarning() << "[Scene3DWidget] loadLayerEnergyCSV: CSV rows"
+                   << raw_energies.size() << "!= OBJ vertices" << nv
+                   << "— assigning" << to_assign << "of" << nv
+                   << "vertices. Check preview-trajectories/preview-samples match.";
+    }
+
     // Store absolute kinE values per vertex; the renderer uses energy_min/max
     // to map [min,max] -> [blue,red].  Vertices without a CSV row default to
     // the low end of the scale (blue) so unmatched verts stay visually neutral.
@@ -377,30 +385,16 @@ void Scene3DWidget::setLayerEnergyGradient(const int layer_index, const bool ena
     update();
 }
 
-// static
-QColor Scene3DWidget::energyToColor(const double t)
+void Scene3DWidget::setActivePalette(
+    beamlab::biosim::EnergyColorMapper::Palette palette)
 {
-    struct Stop { double pos; int r, g, b; };
-    constexpr std::array<Stop, 5> stops{{
-        {0.00,   0,   0, 230},
-        {0.25,   0, 200, 255},
-        {0.50,   0, 230,  80},
-        {0.75, 255, 210,   0},
-        {1.00, 255,  40,   0}
-    }};
-    const double tc = std::clamp(t, 0.0, 1.0);
-    int seg = 0;
-    for (; seg < 3; ++seg) {
-        if (tc <= stops[static_cast<std::size_t>(seg + 1)].pos) break;
-    }
-    const auto& s0 = stops[static_cast<std::size_t>(seg)];
-    const auto& s1 = stops[static_cast<std::size_t>(seg + 1)];
-    const double f = (tc - s0.pos) / (s1.pos - s0.pos);
-    return QColor(
-        static_cast<int>(s0.r + f * (s1.r - s0.r)),
-        static_cast<int>(s0.g + f * (s1.g - s0.g)),
-        static_cast<int>(s0.b + f * (s1.b - s0.b))
-    );
+    active_palette_ = palette;
+    update();
+}
+
+QColor Scene3DWidget::energyToColor(const double t) const
+{
+    return color_mapper_.map(t, active_palette_);
 }
 
 void Scene3DWidget::drawEnergyScaleBar(QPainter& painter, const Layer& layer,

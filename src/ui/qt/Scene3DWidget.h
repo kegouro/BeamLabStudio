@@ -1,5 +1,7 @@
 #pragma once
 
+#include "biosim/ui/qt/EnergyColorMapper.h"
+
 #include <QColor>
 #include <QPoint>
 #include <QRectF>
@@ -30,6 +32,8 @@ public:
     void setLayerLineWidth(int layer_index, double width);
     void loadLayerEnergyCSV(int layer_index, const QString& path);
     void setLayerEnergyGradient(int layer_index, bool enabled);
+    // Select the active energy colour palette for all gradient layers.
+    void setActivePalette(beamlab::biosim::EnergyColorMapper::Palette palette);
     void setTrajectoryParameter(double lambda);
     void setAxesVisible(bool visible);
     void setMeasureGuidesVisible(bool visible);
@@ -89,7 +93,7 @@ private:
     };
 
     bool parseObjIntoLayer(const QString& path, Layer& layer) const;
-    static QColor energyToColor(double t);
+    [[nodiscard]] QColor energyToColor(double t) const;
     void drawEnergyScaleBar(QPainter& painter, const Layer& layer,
                             double top_reserved, double available_h) const;
     Vec3 rotate(const Vec3& p) const;
@@ -122,6 +126,10 @@ private:
     double trajectory_parameter_{1.0};
     bool axes_visible_{true};
     bool measure_guides_visible_{true};
+
+    beamlab::biosim::EnergyColorMapper color_mapper_{};
+    beamlab::biosim::EnergyColorMapper::Palette active_palette_{
+        beamlab::biosim::EnergyColorMapper::Palette::BraggPeak};
 };
 
 } // namespace beamlab::ui
