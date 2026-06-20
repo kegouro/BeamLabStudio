@@ -1,6 +1,7 @@
 #pragma once
 
 #include "services/analysis/engines/EngineResult.h"
+#include "services/storage/IStorageBackend.h"
 
 #include <functional>
 #include <memory>
@@ -85,7 +86,7 @@ public:
     /// \return EngineResult with success/failure, optional metrics,
     ///         and paths to any output files written.
     virtual EngineResult execute(
-        const class IStorageBackend& storage,
+        const beamlab::services::storage::IStorageBackend& storage,
         const nlohmann::json& config,
         ProgressCallback onProgress = nullptr) = 0;
 

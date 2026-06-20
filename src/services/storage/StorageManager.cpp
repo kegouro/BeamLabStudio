@@ -11,6 +11,9 @@ using namespace std::chrono;
 
 namespace beamlab::services::storage {
 
+using beamlab::data::TrajectorySample;
+using beamlab::data::TrajectoryId;
+
 // ── InMemoryBackend (minimal inline implementation) ───────────────────
 
 namespace {

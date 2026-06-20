@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <fstream>
 
 using namespace beamlab::domain::physics;
 

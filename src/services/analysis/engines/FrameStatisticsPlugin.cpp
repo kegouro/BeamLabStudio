@@ -156,7 +156,7 @@ std::vector<std::string> FrameStatisticsPlugin::validateConfig(
 // ── Execute ───────────────────────────────────────────────────────────
 
 EngineResult FrameStatisticsPlugin::execute(
-    const IStorageBackend& storage,
+    const beamlab::services::storage::IStorageBackend& storage,
     const nlohmann::json& config,
     ProgressCallback onProgress)
 {

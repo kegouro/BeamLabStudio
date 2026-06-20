@@ -1,0 +1,111 @@
+{
+  "generated": "2026-06-20T04:52:00Z",
+  "machine": "Darwin arm64",
+  "compiler": "clang++ (Apple)",
+  "build_type": "Debug",
+  "note": "Baseline captured on macOS ARM64. Threshold failures marked SLOW are timing-budget misses on this machine; absolute timings are the reference, not pass/fail. Re-run on target CI machine to update thresholds.",
+  "tests": [
+    {
+      "suite": "CsvImportBenchmark",
+      "name": "Import_10MB_CSV",
+      "time_ms": 5091.0,
+      "status": "pass"
+    },
+    {
+      "suite": "CsvImportBenchmark",
+      "name": "Import_Empty_CSV",
+      "time_ms": 0.0,
+      "status": "pass"
+    },
+    {
+      "suite": "SqliteBatchBenchmark",
+      "name": "Insert_100k_Rows",
+      "time_ms": 581.0,
+      "status": "pass"
+    },
+    {
+      "suite": "SqliteBatchBenchmark",
+      "name": "Insert_1M_Rows",
+      "time_ms": 5523.0,
+      "status": "pass"
+    },
+    {
+      "suite": "SqliteBatchBenchmark",
+      "name": "ReadBatchPerformance",
+      "time_ms": 6194.0,
+      "status": "slow/threshold"
+    },
+    {
+      "suite": "StatisticsEngineBenchmark",
+      "name": "FrameStatistics_500k_Samples",
+      "time_ms": 5365.0,
+      "status": "pass"
+    },
+    {
+      "suite": "StatisticsEngineBenchmark",
+      "name": "FrameStatistics_1M_Samples",
+      "time_ms": 12951.0,
+      "status": "slow/threshold"
+    },
+    {
+      "suite": "StatisticsEngineBenchmark",
+      "name": "ParallelVsSerial",
+      "time_ms": 12911.0,
+      "status": "slow/threshold"
+    },
+    {
+      "suite": "QueryCacheBenchmark",
+      "name": "OneMillionGets",
+      "time_ms": 2439.0,
+      "status": "slow/threshold"
+    },
+    {
+      "suite": "QueryCacheBenchmark",
+      "name": "MixedPutGet500k",
+      "time_ms": 2160.0,
+      "status": "slow/threshold"
+    },
+    {
+      "suite": "QueryCacheBenchmark",
+      "name": "LruPerformance",
+      "time_ms": 2788.0,
+      "status": "slow/threshold"
+    },
+    {
+      "suite": "MemoryArenaBenchmark",
+      "name": "ArenaVsNewDelete",
+      "time_ms": 24914.0,
+      "status": "pass"
+    },
+    {
+      "suite": "MemoryArenaBenchmark",
+      "name": "ResetThroughput",
+      "time_ms": 806.0,
+      "status": "pass"
+    },
+    {
+      "suite": "MemoryArenaBenchmark",
+      "name": "AlignmentCost",
+      "time_ms": 812.0,
+      "status": "pass"
+    },
+    {
+      "suite": "ParallelBatchBenchmark",
+      "name": "Speedup2Threads",
+      "time_ms": 18.0,
+      "status": "pass"
+    },
+    {
+      "suite": "ParallelBatchBenchmark",
+      "name": "Speedup4Threads",
+      "time_ms": 15.0,
+      "status": "pass"
+    },
+    {
+      "suite": "ParallelBatchBenchmark",
+      "name": "ResultIdenticalToSingleThread",
+      "time_ms": 4.0,
+      "status": "pass"
+    }
+  ]
+}

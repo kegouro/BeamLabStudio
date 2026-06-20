@@ -377,7 +377,7 @@ int ApplicationBootstrap::run(int argc, char** argv)
                       << storage->trajectoryCount() << " trajectories\n";
             std::cout << "[perf] Import: " << importSec << "s  "
                       << "Indices: " << indexSec << "s  "
-                      << "Rate: " << static_cast<int>(imported/importSec) << " samples/s\n";
+                      << "Rate: " << static_cast<int>(static_cast<double>(imported)/importSec) << " samples/s\n";
 
             if (imported > 0) {
                 beamlab::data::AxisFrame ax = {{0,0,0},{0,0,1},{1,0,0},{0,1,0}};

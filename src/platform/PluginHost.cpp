@@ -11,6 +11,8 @@ namespace fs = std::filesystem;
 
 namespace beamlab::platform {
 
+using beamlab::app::ApplicationContext;
+
 // ══════════════════════════════════════════════════════════════════════
 //  Platform-specific shared library loading
 // ══════════════════════════════════════════════════════════════════════

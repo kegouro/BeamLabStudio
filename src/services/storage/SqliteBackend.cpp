@@ -97,7 +97,7 @@ void SqliteBackend::ensureTable()
 
 // ── Prepared statement cache ──────────────────────────────────────
 
-SqliteBackend::StmtPtr SqliteBackend::prepare(const std::string& sql)
+SqliteBackend::StmtPtr SqliteBackend::prepare(const std::string& sql) const
 {
     auto it = stmtCache_.find(sql);
     if (it != stmtCache_.end()) {
@@ -115,7 +115,7 @@ SqliteBackend::StmtPtr SqliteBackend::prepare(const std::string& sql)
     return stmt;
 }
 
-void SqliteBackend::recycle(StmtPtr stmt)
+void SqliteBackend::recycle(StmtPtr stmt) const
 {
     sqlite3_reset(stmt);
     sqlite3_clear_bindings(stmt);

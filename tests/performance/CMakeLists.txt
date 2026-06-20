@@ -2,6 +2,9 @@
 #  beamlab_performance_tests — Performance benchmarks
 #  Uses GoogleTest (same as unit tests).  Labeled [performance].
 #  Run with:  ctest -L performance --verbose
+#
+#  bench_scene3d_render.cpp requires Qt6 + Google Benchmark — excluded
+#  from the headless build (BEAMLAB_ENABLE_QT_UI=OFF).
 # ══════════════════════════════════════════════════════════════════════
 
 FetchContent_MakeAvailable(googletest)
@@ -11,10 +14,10 @@ add_executable(beamlab_performance_tests
     bench_csv_import.cpp
     bench_sqlite_batch.cpp
     bench_statistics_engine.cpp
-    bench_scene3d_render.cpp
     bench_query_cache.cpp
     bench_memory_arena.cpp
     bench_parallel_batch.cpp
+    # bench_scene3d_render.cpp — pending: requires Qt6 + google-benchmark (BEAMLAB_ENABLE_QT_UI=ON)
 )
 
 target_include_directories(beamlab_performance_tests PRIVATE

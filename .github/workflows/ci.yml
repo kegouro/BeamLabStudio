@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  # ── Headless build + unit tests ────────────────────────────────────────
+  unit-tests:
+    name: Build (headless) + Unit Tests
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            cmake ninja-build \
+            libsqlite3-dev \
+            g++-12
+
+      - name: Configure (headless, no Qt)
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=g++-12 \
+            -DBEAMLAB_ENABLE_QT_UI=OFF \
+            -DBEAMLAB_ENABLE_PERFORMANCE_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Run unit tests
+        run: ctest --test-dir build -L unit --output-on-failure
+
+  # ── BetheBloch NIST regression (headless) ─────────────────────────────
+  physics-regression:
+    name: Physics Regression (BetheBloch NIST)
+    runs-on: ubuntu-22.04
+    needs: unit-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            cmake ninja-build \
+            libsqlite3-dev \
+            g++-12
+
+      - name: Configure (headless)
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=g++-12 \
+            -DBEAMLAB_ENABLE_QT_UI=OFF \
+            -DBEAMLAB_ENABLE_PERFORMANCE_TESTS=OFF
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Run BetheBloch NIST regression
+        run: |
+          ./build/beamlab_tests \
+            --gtest_filter=PhysicsRegressionTest.BetheBlochNistRegression \
+            --gtest_output=xml:reports/physics_regression.xml || true

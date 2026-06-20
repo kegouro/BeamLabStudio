@@ -40,7 +40,8 @@ public:
     template<typename T>
     std::optional<T> get(const std::string& key)
     {
-        std::shared_lock<std::shared_mutex> lock(mutex_);
+        // Use unique lock: get() promotes accessed entry to front (LRU update).
+        std::unique_lock<std::shared_mutex> lock(mutex_);
 
         auto it = index_.find(key);
         if (it == index_.end()) {
@@ -52,20 +53,14 @@ public:
 
         // ── TTL check ──────────────────────────────────────────────
         if (std::chrono::steady_clock::now() > listIt->expiresAt) {
-            // Expired — remove and report miss.
-            // Convert shared lock to unique lock for eviction.
-            lock.unlock();
-            {
-                std::unique_lock<std::shared_mutex> ul(mutex_);
-                auto it2 = index_.find(key);
-                if (it2 != index_.end()) {
-                    lruList_.erase(it2->second);
-                    index_.erase(it2);
-                }
-            }
+            lruList_.erase(listIt);
+            index_.erase(it);
             ++misses_;
             return std::nullopt;
         }
+
+        // Promote to front (most recently used).
+        lruList_.splice(lruList_.begin(), lruList_, listIt);
 
         // Deserialise.
         try {

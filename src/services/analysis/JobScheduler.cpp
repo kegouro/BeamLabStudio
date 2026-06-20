@@ -40,7 +40,7 @@ std::vector<std::vector<IAnalysisEngine*>> JobScheduler::buildLevels(
 
 void JobScheduler::executeLevel(
     const std::vector<IAnalysisEngine*>& level,
-    const IStorageBackend& storage,
+    const beamlab::services::storage::IStorageBackend& storage,
     const nlohmann::json& config,
     AnalysisResult& result,
     std::mutex& resultMutex,
@@ -121,7 +121,7 @@ void JobScheduler::executeLevel(
 
 AnalysisResult JobScheduler::runAll(
     const std::vector<std::unique_ptr<IAnalysisEngine>>& engines,
-    const IStorageBackend& storage,
+    const beamlab::services::storage::IStorageBackend& storage,
     const nlohmann::json& config,
     JobProgressCallback onProgress)
 {

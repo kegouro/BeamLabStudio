@@ -64,12 +64,12 @@ private:
     void flushPending();
 
     using StmtPtr = sqlite3_stmt*;
-    StmtPtr prepare(const std::string& sql);
-    void recycle(StmtPtr stmt);
+    StmtPtr prepare(const std::string& sql) const;  // logically const (cached)
+    void recycle(StmtPtr stmt) const;                // logically const
 
     beamlab::data::TrajectorySample rowToSample(StmtPtr stmt) const;
 
-    // Mutables for SampleBatch read methods (logically const).
+    // Mutables for SampleBatch read methods and statement cache (logically const).
     mutable std::vector<beamlab::data::TrajectorySample> readBuffer_;
 
     sqlite3* db_{nullptr};
@@ -79,7 +79,7 @@ private:
     uint64_t batchSize_{100000};
     bool indicesFinalized_{false};
 
-    std::unordered_map<std::string, StmtPtr> stmtCache_;
+    mutable std::unordered_map<std::string, StmtPtr> stmtCache_;
 };
 
 } // namespace beamlab::services::storage

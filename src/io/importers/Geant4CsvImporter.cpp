@@ -461,7 +461,6 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         int maxNeeded = columns.x_cm;
         if (columns.y_cm > maxNeeded) maxNeeded = columns.y_cm;
         if (columns.z_cm > maxNeeded) maxNeeded = columns.z_cm;
-        int required_size = static_cast<std::size_t>(maxNeeded + 1);
 
         if (static_cast<int>(tokens.size()) <= maxNeeded) {
             recordDrop("too few columns", line_number);
@@ -544,11 +543,12 @@ ImportResult Geant4CsvImporter::import(const std::string& file_path,
         };
 
         std::optional<double> edep_opt, kine_opt, momx_opt, momy_opt, momz_opt;
-        if (!readOptionalNumeric(columns.edep_MeV, "edep_MeV", edep_opt)) continue;
-        if (!readOptionalNumeric(columns.kinE_MeV, "kinE_MeV", kine_opt)) continue;
-        if (!readOptionalNumeric(columns.momx_MeV, "momx_MeV", momx_opt)) continue;
-        if (!readOptionalNumeric(columns.momy_MeV, "momy_MeV", momy_opt)) continue;
-        if (!readOptionalNumeric(columns.momz_MeV, "momz_MeV", momz_opt)) continue;
+        // column indices are stored as int; cast to std::size_t matches readOptionalNumeric signature.
+        if (!readOptionalNumeric(static_cast<std::size_t>(columns.edep_MeV), "edep_MeV", edep_opt)) continue;
+        if (!readOptionalNumeric(static_cast<std::size_t>(columns.kinE_MeV), "kinE_MeV", kine_opt)) continue;
+        if (!readOptionalNumeric(static_cast<std::size_t>(columns.momx_MeV), "momx_MeV", momx_opt)) continue;
+        if (!readOptionalNumeric(static_cast<std::size_t>(columns.momy_MeV), "momy_MeV", momy_opt)) continue;
+        if (!readOptionalNumeric(static_cast<std::size_t>(columns.momz_MeV), "momz_MeV", momz_opt)) continue;
 
         // Energy guards (S4) — shared logic with streaming path via samplePassesGuards.
         if (edep_opt && *edep_opt < 0.0) {
@@ -680,7 +680,6 @@ uint64_t Geant4CsvImporter::importStreaming(
     }
     if (!columns.valid) return 0;
 
-    std::size_t line_number = 1;
     uint64_t sampleCount = 0;
     std::string currentTrajId;
 
@@ -695,7 +694,6 @@ uint64_t Geant4CsvImporter::importStreaming(
     }
 
     while (std::getline(input, line)) {
-        ++line_number;
         if (line.empty() || line[0] == '#') continue;
 
         // Tokenise into strings (variable column count)

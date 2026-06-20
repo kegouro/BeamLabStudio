@@ -1,6 +1,7 @@
 #pragma once
 
 #include "services/analysis/JobScheduler.h"
+#include "services/storage/IStorageBackend.h"
 #include "services/storage/StorageManager.h"
 
 #include <atomic>
@@ -36,14 +37,10 @@ using OrchestratorDoneCallback =
 
 // ── Minimal registry interfaces expected by the orchestrator ────────
 
-namespace storage {
-class IStorageImporter;
-} // namespace storage
-
 class IImporterRegistry {
 public:
     virtual ~IImporterRegistry() = default;
-    virtual storage::IStorageImporter* detectImporter(
+    virtual beamlab::services::storage::IStorageImporter* detectImporter(
         const std::string& filePath) = 0;
 };
 
@@ -51,7 +48,7 @@ class IExporterRegistry {
 public:
     virtual ~IExporterRegistry() = default;
     virtual void exportAll(
-        const IStorageBackend& storage,
+        const beamlab::services::storage::IStorageBackend& storage,
         const AnalysisResult& result,
         const std::string& outputDir,
         const std::vector<std::string>& formats) = 0;
@@ -65,7 +62,7 @@ public:
         IImporterRegistry* importerRegistry,
         IExporterRegistry* exporterRegistry,
         JobScheduler* scheduler,
-        storage::StorageManager* storageManager,
+        beamlab::services::storage::StorageManager* storageManager,
         platform::EventBus* eventBus);
 
     ~AnalysisOrchestrator();
@@ -92,7 +89,7 @@ private:
     IImporterRegistry* importerRegistry_;
     IExporterRegistry* exporterRegistry_;
     JobScheduler* scheduler_;
-    storage::StorageManager* storageManager_;
+    beamlab::services::storage::StorageManager* storageManager_;
     platform::EventBus* eventBus_;
 
     std::thread worker_;
