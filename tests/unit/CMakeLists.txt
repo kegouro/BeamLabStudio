@@ -16,8 +16,17 @@ add_executable(beamlab_tests
     services/test_ProfileManager.cpp
     ui/test_ActionRegistry.cpp
     ${PROJECT_SOURCE_DIR}/src/ui/qt/shell/ActionRegistry.cpp
+    # F1b: biosim stopping-power path validated vs NIST PSTAR. The physics
+    # files below are pure C++ (no Qt) so they compile straight into the
+    # headless test binary without pulling in beamlab_biosim/Qt.
+    test_BiosimStoppingPowerNistRegression.cpp
+    ${PROJECT_SOURCE_DIR}/src/biosim/physics/StoppingPowerEngine.cpp
+    ${PROJECT_SOURCE_DIR}/src/biosim/physics/EnergyStraggling.cpp
+    ${PROJECT_SOURCE_DIR}/src/biosim/physics/ParticleLibrary.cpp
+    ${PROJECT_SOURCE_DIR}/src/biosim/materials/BioMaterialLibrary.cpp
 )
-# test_StoppingPowerEngine.cpp — requires old BioMaterialLibrary/ParticleLibrary (pending migration to domain layer)
+# test_StoppingPowerEngine.cpp — disabled: hardcodes the engine's own output
+# (self-referential, S5 anti-pattern). Superseded by the NIST-fixture test above.
 
 target_include_directories(beamlab_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
 

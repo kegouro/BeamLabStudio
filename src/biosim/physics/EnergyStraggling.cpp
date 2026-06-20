@@ -74,16 +74,27 @@ double EnergyStraggling::bohrVariance_MeV2(const double kinE_MeV,
                                              const BioMaterial& mat,
                                              const ParticleSpecies& particle) const
 {
-    // σ²_B = K·z²·(Z/A)·ρ·dx·Wmax·(1 − β²/2) / 2   [MeV²]
+    // Bohr energy-loss straggling variance (PDG 2022 §34.2.5; Bohr,
+    // Rev.Mod.Phys. 40 (1968) 471):
+    //
+    //   σ² = ξ · Wmax · (1 − β²/2)            [MeV²]
+    //
+    // with ξ = K·z²·(Z/A)·ρ·dx / (2β²) [MeV] the Landau scale parameter
+    // (same ξ as in xi_MeV).  Substituting ξ explicitly:
+    //
+    //   σ² = K·z²·(Z/A)·ρ·dx · Wmax · (1 − β²/2) / (2β²)
+    //
+    // The previous form divided by 2 instead of 2β², suppressing the
+    // variance by exactly β² (≈0.1–0.4 over 50–250 MeV protons) and making
+    // the Gaussian/Vavilov fluctuation far too narrow.
     if (kinE_MeV <= 0.0 || dx_cm <= 0.0) return 0.0;
     const double M      = particle.mass_MeV;
     const double gamma  = 1.0 + kinE_MeV / M;
     const double beta2  = 1.0 - 1.0 / (gamma * gamma);
     if (beta2 <= 0.0) return 0.0;
-    const double W  = wmax_MeV(kinE_MeV, particle.mass_MeV);
-    const double z2 = particle.charge * particle.charge;
-    return (k_BB * z2 * (mat.Z_eff / mat.A_eff) * mat.density_g_cm3 * dx_cm
-            * W * (1.0 - beta2 / 2.0)) / 2.0;
+    const double W   = wmax_MeV(kinE_MeV, particle.mass_MeV);
+    const double xi  = xi_MeV(kinE_MeV, dx_cm, mat, particle); // = K·z²·(Z/A)·ρ·dx/(2β²)
+    return xi * W * (1.0 - beta2 / 2.0);
 }
 
 // ── Sampling ──────────────────────────────────────────────────────────────────
@@ -92,19 +103,24 @@ double EnergyStraggling::sampleLandau(const double xi,
                                        const double mean_loss,
                                        std::mt19937_64& rng) const
 {
-    // Moyal approximation to the Landau distribution.
-    // The mode of Landau is at λ_peak ≈ -0.2228; mean at ≈ 0.2228.
-    // Δ_sample = ξ · (λ + 0.2228 + β² + ln(ξ/Wmax))
-    // We approximate by sampling λ from the Moyal distribution:
-    //   λ = -ln(u₁) - ln(-ln(u₂))   where u₁, u₂ ~ U(0,1)
-    // This is the standard fast-sampling recipe (Barkas-Berger-Seltzer).
+    // Moyal approximation to the Landau distribution (PDG 2022 §34.2.7).
+    // Sample the standardised Moyal variate λ via inverse transform:
+    //   λ = −ln(u₁) − ln(−ln(u₂))   with u₁, u₂ ~ U(0,1)
+    // This λ has p.d.f. ∝ exp(−½(λ + e^(−λ))) (Moyal), the standard fast
+    // approximation to Landau used in lieu of the full Landau inversion.
+    //
+    // Centering: E[λ] = 1 + γ_Euler ≈ 1.5772 for this generator, so to make
+    // the sampled loss unbiased about the deterministic mean we shift by
+    // −E[λ]; the fluctuation scale is ξ (Landau width parameter).  The old
+    // code subtracted 0.2228 (the Landau *mode* offset, not the generator's
+    // mean), which biased every step's loss high by ξ·1.354.
+    constexpr double k_moyal_mean = 1.5772135; // 1 + Euler-Mascheroni γ
     double u1, u2;
     do { u1 = uniform01(rng); } while (u1 <= 1e-12);
     do { u2 = uniform01(rng); } while (u2 >= 1.0 - 1e-12);
 
     const double lam = -std::log(u1) - std::log(-std::log(u2));
-    // Shift to match mean
-    const double sample = xi * (lam - 0.2228) + mean_loss;
+    const double sample = xi * (lam - k_moyal_mean) + mean_loss;
     return std::max(0.0, sample);
 }
 
