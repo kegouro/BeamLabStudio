@@ -165,6 +165,7 @@ if(BEAMLAB_ENABLE_QT_UI)
         src/biosim/geometry/PhantomLibrary.cpp
         src/biosim/core/EnergyScaleConverter.cpp
         src/biosim/core/BioSimRunner.cpp
+        src/biosim/physics/SOBPCalculator.cpp
         src/biosim/ui/qt/EnergyColorMapper.cpp
         src/biosim/ui/qt/EnergyScaleBar.cpp
         src/biosim/ui/qt/BioViewport3D.cpp
@@ -173,6 +174,7 @@ if(BEAMLAB_ENABLE_QT_UI)
         src/biosim/ui/qt/BioSimWidget.cpp
         src/biosim/ui/qt/MaterialEditorDialog.cpp
         src/biosim/ui/qt/PhantomPresetPanel.cpp
+        src/biosim/ui/qt/SOBPWidget.cpp
     )
     target_include_directories(beamlab_biosim PUBLIC ${PROJECT_SOURCE_DIR}/src)
     target_link_libraries(beamlab_biosim PUBLIC Qt6::Widgets Qt6::Concurrent beamlab_core)

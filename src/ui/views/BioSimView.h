@@ -9,6 +9,7 @@ class QLabel;
 class QProgressBar;
 class QPushButton;
 class QSplitter;
+class QTabWidget;
 
 namespace beamlab {
 namespace biosim {
@@ -17,12 +18,14 @@ class BioViewport3D;
 class SlabEditor3D;
 class MaterialEditorDialog;
 class EnergyScaleBar;
+class SOBPWidget;
 }
 namespace ui {
 
 class BioSimPresenter;
 
-/// Bio-simulator tab — 3D viewport + slab controls + material editing.
+/// Bio-simulator tab — 3D viewport + slab controls + material editing
+/// + SOBP planning panel.
 ///
 /// MVP view: owns no business logic.  Run/Stop are forwarded to the
 /// BioSimPresenter, which drives the real BioSimRunner; the resulting
@@ -56,6 +59,8 @@ private:
     biosim::BioViewport3D*  viewport3D_{nullptr};
     biosim::SlabEditor3D*   slabEditor_{nullptr};
     biosim::EnergyScaleBar* energyScale_{nullptr};
+    biosim::SOBPWidget*     sobpWidget_{nullptr};
+    QTabWidget*             biosimTabs_{nullptr};
     QPushButton*    materialsBtn_{nullptr};
     QPushButton*    runBtn_{nullptr};
     QPushButton*    stopBtn_{nullptr};

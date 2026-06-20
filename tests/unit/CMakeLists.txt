@@ -36,6 +36,10 @@ add_executable(beamlab_tests
     ${PROJECT_SOURCE_DIR}/src/biosim/physics/EnergyStraggling.cpp
     ${PROJECT_SOURCE_DIR}/src/biosim/physics/ParticleLibrary.cpp
     ${PROJECT_SOURCE_DIR}/src/biosim/materials/BioMaterialLibrary.cpp
+    # C1: SOBP calculator — pure C++, no Qt.
+    test_SOBPCalculator.cpp
+    ${PROJECT_SOURCE_DIR}/src/biosim/physics/SOBPCalculator.cpp
+    ${PROJECT_SOURCE_DIR}/src/biosim/physics/BraggPeakCalculator.cpp
 )
 # test_StoppingPowerEngine.cpp — disabled: hardcodes the engine's own output
 # (self-referential, S5 anti-pattern). Superseded by the NIST-fixture test above.

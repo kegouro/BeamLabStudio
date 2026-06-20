@@ -9,6 +9,7 @@
 #include "biosim/ui/qt/EnergyScaleBar.h"
 #include "biosim/ui/qt/MaterialEditorDialog.h"
 #include "biosim/ui/qt/SlabEditor3D.h"
+#include "biosim/ui/qt/SOBPWidget.h"
 
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -17,6 +18,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSplitter>
+#include <QTabWidget>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -69,8 +71,15 @@ void BioSimView::setupLayout()
 
     root->addWidget(toolbar);
 
-    // --- Main splitter (horizontal): [viewport + scalebar] | (future panels) ---
-    horizontalSplitter_ = new QSplitter(Qt::Horizontal, this);
+    // --- Tab widget: [Simulación 3D] | [SOBP] --------------------------------
+    biosimTabs_ = new QTabWidget(this);
+    biosimTabs_->setDocumentMode(true);
+
+    // --- Tab 0: Simulación 3D ------------------------------------------------
+    auto* simPage = new QWidget(biosimTabs_);
+
+    // Main splitter (horizontal): [viewport + scalebar] | (future panels)
+    horizontalSplitter_ = new QSplitter(Qt::Horizontal, simPage);
 
     // Vertical splitter on the left: 3D scene over slab editor.
     verticalSplitter_ = new QSplitter(Qt::Vertical, horizontalSplitter_);
@@ -93,7 +102,22 @@ void BioSimView::setupLayout()
     verticalSplitter_->setStretchFactor(1, 1);
 
     horizontalSplitter_->addWidget(verticalSplitter_);
-    root->addWidget(horizontalSplitter_, 1);
+
+    auto* simPageLayout = new QVBoxLayout(simPage);
+    simPageLayout->setContentsMargins(0, 0, 0, 0);
+    simPageLayout->setSpacing(0);
+    simPageLayout->addWidget(horizontalSplitter_, 1);
+
+    biosimTabs_->addTab(simPage, QStringLiteral("Simulación 3D"));
+
+    // --- Tab 1: SOBP ---------------------------------------------------------
+    // ponytail: SOBPWidget contains its own SOBPCalculator (pure C++, no Qt).
+    //   techo: single-threaded compute; no async needed for N≤30 peaks.
+    //   upgrade: QFuture if N>30 or sub-mm resolution is requested.
+    sobpWidget_ = new SOBPWidget(biosimTabs_);
+    biosimTabs_->addTab(sobpWidget_, QStringLiteral("SOBP"));
+
+    root->addWidget(biosimTabs_, 1);
 
     // --- Status bar ---
     auto* statusRow = new QHBoxLayout();
