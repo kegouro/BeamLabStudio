@@ -55,8 +55,10 @@ public:
             throw std::runtime_error(
                 "Handler already registered for command type");
         }
-        handlers_[idx] = [h = std::move(handler)](const std::any& cmd) -> std::any {
-            return h->handle(std::any_cast<const TCmd&>(cmd));
+        // Wrap in shared_ptr so the lambda is copyable (std::function requires it).
+        auto shared = std::shared_ptr<CommandHandler<TCmd,TRes>>(std::move(handler));
+        handlers_[idx] = [shared](const std::any& cmd) -> std::any {
+            return shared->handle(std::any_cast<const TCmd&>(cmd));
         };
     }
 

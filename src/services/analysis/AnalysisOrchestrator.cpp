@@ -1,4 +1,5 @@
 #include "services/analysis/AnalysisOrchestrator.h"
+#include "core/config/AnalysisConfig.h"
 #include "platform/EventBus.h"
 #include "services/storage/IStorageBackend.h"
 
@@ -17,7 +18,7 @@ AnalysisOrchestrator::AnalysisOrchestrator(
     IImporterRegistry* importerRegistry,
     IExporterRegistry* exporterRegistry,
     JobScheduler* scheduler,
-    storage::StorageManager* storageManager,
+    beamlab::services::storage::StorageManager* storageManager,
     platform::EventBus* eventBus)
     : importerRegistry_(importerRegistry)
     , exporterRegistry_(exporterRegistry)
@@ -128,7 +129,18 @@ void AnalysisOrchestrator::executePipeline(
             fileSize = static_cast<std::uint64_t>(fs::file_size(filePath));
         } catch (...) {}
 
-        auto storage = storageManager_->create(fileSize, config);
+        // Build a AnalysisRunConfig from JSON; fall back to defaults for fields not present.
+        // ponytail: JSON→AnalysisRunConfig bridge | techo: services migration F6 | upgrade: add from_json overload
+        beamlab::core::AnalysisRunConfig runConfig{};
+        if (config.contains("storage")) {
+            if (config["storage"].contains("sqlite_threshold_mb"))
+                runConfig.storage.sqlite_threshold_mb =
+                    config["storage"]["sqlite_threshold_mb"].get<int>();
+            if (config["storage"].contains("batch_size"))
+                runConfig.storage.batch_size =
+                    config["storage"]["batch_size"].get<int>();
+        }
+        auto storage = storageManager_->create(fileSize, runConfig);
         if (!storage) {
             auto msg = "Failed to create storage backend";
             if (eventBus_) {
@@ -151,7 +163,7 @@ void AnalysisOrchestrator::executePipeline(
 
         stageStart_ = std::chrono::steady_clock::now();
 
-        storage::ImportContext ctx{filePath, fileSize};
+        beamlab::services::storage::ImportContext ctx{filePath, fileSize};
         storageManager_->importFrom(*importer, ctx, *storage,
             [&](std::uint64_t read, std::uint64_t total) {
                 updateSpeed(read);

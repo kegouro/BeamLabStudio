@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core/config/AnalysisConfig.h"
-#include "core/pipeline/AnalysisPipeline.h"
 #include "core/pipeline/ProgressTracker.h"
 
 #include <QObject>
@@ -49,7 +48,6 @@ private:
                      const std::string& outputDir,
                      const beamlab::core::AnalysisRunConfig& config);
 
-    std::unique_ptr<beamlab::core::AnalysisPipeline> pipeline_;
     QThread workerThread_;
 };
 

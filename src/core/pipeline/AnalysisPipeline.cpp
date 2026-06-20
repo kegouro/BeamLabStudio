@@ -12,13 +12,6 @@
 
 namespace beamlab::core {
 
-static uint64_t totalSamples(const beamlab::data::TrajectoryDataset& ds)
-{
-    uint64_t n = 0;
-    for (const auto& t : ds.trajectories) n += t.samples.size();
-    return n;
-}
-
 AnalysisPipeline::AnalysisPipeline(const AnalysisRunConfig& config)
     : config_(config)
 {

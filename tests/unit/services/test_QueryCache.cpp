@@ -177,7 +177,7 @@ TEST_F(QueryCacheTest, ConcurrentPutAndGet)
                 sharedCache.put(key, i);
                 auto val = sharedCache.get<int>(key);
                 // May be nullopt if evicted, but must never crash.
-                Q_UNUSED(val);
+                (void)val;  // may be nullopt if evicted, but must never crash
             }
         });
     }

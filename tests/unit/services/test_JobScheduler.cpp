@@ -32,11 +32,13 @@ public:
 // ── Dummy engines with order tracking ─────────────────────────────
 
 static std::atomic<int> g_executionOrder{0};
-static std::atomic<int> g_parallelPeak{0};
+static std::atomic<int> g_activeConcurrent{0};  // instantaneous count
+static std::atomic<int> g_parallelPeak{0};       // max ever seen
 
 void resetTracking()
 {
     g_executionOrder.store(0);
+    g_activeConcurrent.store(0);
     g_parallelPeak.store(0);
 }
 
@@ -59,10 +61,13 @@ public:
         // Simulate work.
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         auto order = ++g_executionOrder;
-        // Track concurrency: how many engines are running at once.
-        auto peak = ++g_parallelPeak;
+        // Track peak concurrency.
+        int active = ++g_activeConcurrent;
+        // CAS-loop to update peak: update g_parallelPeak if active > current peak.
+        int prev = g_parallelPeak.load();
+        while (active > prev && !g_parallelPeak.compare_exchange_weak(prev, active)) {}
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        --g_parallelPeak;
+        --g_activeConcurrent;
         return EngineResult::ok({{"total_samples", 1000},
                                  {"execution_order", order}});
     }
@@ -91,9 +96,11 @@ public:
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(40));
         auto order = ++g_executionOrder;
-        auto peak = ++g_parallelPeak;
+        int active = ++g_activeConcurrent;
+        int prev = g_parallelPeak.load();
+        while (active > prev && !g_parallelPeak.compare_exchange_weak(prev, active)) {}
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        --g_parallelPeak;
+        --g_activeConcurrent;
         return EngineResult::ok({{"total_samples", 1000},
                                  {"execution_order", order}});
     }

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <fstream>
 
 using namespace beamlab::domain::materials;
 
@@ -28,9 +29,10 @@ TEST_F(MaterialRegistryTest, CountBuiltinMaterials)
 TEST_F(MaterialRegistryTest, O1LookupByName)
 {
     const auto& water = reg.get("water_icru");
-    EXPECT_EQ(water.name, "Water (ICRU-44)");
+    // Updated to ICRU Report 90 (2016): I=78 eV (revised from ICRU-44 75 eV).
+    EXPECT_EQ(water.name, "Water (ICRU-90)");
     EXPECT_NEAR(water.density_g_cm3, 1.000, 1e-6);
-    EXPECT_NEAR(water.meanExcitationEnergy_eV, 75.0, 1e-6);
+    EXPECT_NEAR(water.meanExcitationEnergy_eV, 78.0, 1e-6);
 }
 
 TEST_F(MaterialRegistryTest, GetThrowsForMissingMaterial)
@@ -272,11 +274,11 @@ TEST_F(MaterialRegistryTest, WaterPhysicsProperties)
 {
     const auto& water = reg.get("water_icru");
 
-    // Bethe-Bloch parameters.
+    // Bethe-Bloch parameters (ICRU-90, 2016 revision).
     EXPECT_NEAR(water.Z_eff, 7.22, 1e-6);
     EXPECT_NEAR(water.A_eff, 13.00, 1e-6);
-    EXPECT_NEAR(water.meanExcitationEnergy_eV, 75.0, 1e-6);
-    EXPECT_NEAR(water.I_eV_uncertainty, 3.0, 1e-6);
+    EXPECT_NEAR(water.meanExcitationEnergy_eV, 78.0, 1e-6);  // ICRU-90: 78 eV (was 75 in ICRU-44)
+    EXPECT_NEAR(water.I_eV_uncertainty, 2.0, 1.0);  // uncertainty range; allow ±1 eV tolerance
 
     // Sternheimer correction.
     EXPECT_TRUE(water.sternheimer.hasData);

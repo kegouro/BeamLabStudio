@@ -66,7 +66,7 @@ public:
     /// \param onProgress  Optional overall-progress callback.
     AnalysisResult runAll(
         const std::vector<std::unique_ptr<IAnalysisEngine>>& engines,
-        const IStorageBackend& storage,
+        const beamlab::services::storage::IStorageBackend& storage,
         const nlohmann::json& config,
         JobProgressCallback onProgress = nullptr);
 
@@ -86,7 +86,7 @@ private:
     /// Execute a single level in parallel.
     void executeLevel(
         const std::vector<IAnalysisEngine*>& level,
-        const IStorageBackend& storage,
+        const beamlab::services::storage::IStorageBackend& storage,
         const nlohmann::json& config,
         AnalysisResult& result,
         std::mutex& resultMutex,

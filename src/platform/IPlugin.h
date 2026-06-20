@@ -1,6 +1,8 @@
-#include <filesystem>
 #pragma once
 
+#include "app/ApplicationContext.h"
+
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -16,7 +18,7 @@ public:
     virtual std::string name() const = 0;
     virtual std::string version() const = 0;
     virtual std::string description() const = 0;
-    virtual void initialize(class ApplicationContext& ctx) = 0;
+    virtual void initialize(beamlab::app::ApplicationContext& ctx) = 0;
     virtual void shutdown() = 0;
 };
 
@@ -57,7 +59,7 @@ public:
     void registerBuiltin(std::unique_ptr<IPlugin> plugin);
 
     /// Call initialize() on every loaded and builtin plugin.
-    void initializeAll(class ApplicationContext& ctx);
+    void initializeAll(beamlab::app::ApplicationContext& ctx);
 
     /// Call shutdown() on every plugin and unload all shared libraries.
     void shutdownAll();
@@ -108,7 +110,6 @@ private:
     mutable std::mutex mutex_;
 
     static void closeHandle(void* handle);
-    static bool hasPluginExtension(const std::string& filename);
 };
 
 } // namespace beamlab::platform

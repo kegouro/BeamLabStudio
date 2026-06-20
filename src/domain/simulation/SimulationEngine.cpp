@@ -195,9 +195,10 @@ SimulationEngine::computeBraggCurve(
     const std::string& particleName,
     std::size_t nSteps) const
 {
-    // Pre-validate.
-    materials_.get(materialName);
-    particles_.get(particleName);
+    // Pre-validate: throws std::out_of_range if not found.
+    // Results discarded intentionally — only the side-effect (throw) matters.
+    (void)materials_.get(materialName);
+    (void)particles_.get(particleName);
 
     BraggCurve bc;
     bc.depth_cm.reserve(nSteps);

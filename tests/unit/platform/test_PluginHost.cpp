@@ -9,6 +9,7 @@
 
 namespace fs = std::filesystem;
 using namespace beamlab::platform;
+using beamlab::app::ApplicationContext;
 
 // ── Dummy built-in plugins ──────────────────────────────────────────
 
@@ -100,14 +101,25 @@ TEST(PluginHostTest, InitializeAllCallsInitialize)
 
 TEST(PluginHostTest, ShutdownAllCallsShutdown)
 {
-    PluginHost host;
-    auto* raw = new CounterPlugin();
-    auto* rawPtr = raw;
-    host.registerBuiltin(std::unique_ptr<CounterPlugin>(raw));
+    // Use a shared counter so we can observe the call after the plugin is destroyed.
+    int shutdownCount = 0;
 
+    class ObservablePlugin final : public IPlugin {
+    public:
+        int& counter;
+        explicit ObservablePlugin(int& c) : counter(c) {}
+        std::string name()        const override { return "Observable"; }
+        std::string version()     const override { return "1.0.0"; }
+        std::string description() const override { return ""; }
+        void initialize(beamlab::app::ApplicationContext&) override {}
+        void shutdown() override { ++counter; }
+    };
+
+    PluginHost host;
+    host.registerBuiltin(std::make_unique<ObservablePlugin>(shutdownCount));
     host.shutdownAll();
 
-    EXPECT_EQ(rawPtr->shutdownCalls, 1);
+    EXPECT_EQ(shutdownCount, 1);
 }
 
 TEST(PluginHostTest, InitializeAllSkipsUnregistered)

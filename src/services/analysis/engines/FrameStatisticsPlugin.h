@@ -58,7 +58,7 @@ public:
     // ── Execution ───────────────────────────────────────────────────
 
     EngineResult execute(
-        const class IStorageBackend& storage,
+        const beamlab::services::storage::IStorageBackend& storage,
         const nlohmann::json& config,
         ProgressCallback onProgress) override;
 

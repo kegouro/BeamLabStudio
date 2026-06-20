@@ -37,7 +37,7 @@ TEST(MemoryArenaBenchmark, ArenaVsNewDelete)
         auto start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIterations; ++i) {
             auto* p = arena.allocate<char>(static_cast<std::size_t>(kAllocSize));
-            Q_UNUSED(p);
+            (void)(p);
         }
         auto elapsed = std::chrono::steady_clock::now() - start;
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
@@ -59,7 +59,7 @@ TEST(MemoryArenaBenchmark, ArenaVsNewDelete)
         for (int i = 0; i < kIterations; ++i) {
             char* p = buf.data() + off;
             off += kAllocSize;
-            Q_UNUSED(p);
+            (void)(p);
         }
         auto elapsed = std::chrono::steady_clock::now() - start;
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
@@ -84,7 +84,7 @@ TEST(MemoryArenaBenchmark, ResetThroughput)
         auto* sx = arena.allocate<double>(kBatchSize);
         auto* sy = arena.allocate<double>(kBatchSize);
         auto* sz = arena.allocate<double>(kBatchSize);
-        Q_UNUSED(sx); Q_UNUSED(sy); Q_UNUSED(sz);
+        (void)(sx); (void)(sy); (void)(sz);
 
         arena.reset();
     }
@@ -110,7 +110,7 @@ TEST(MemoryArenaBenchmark, AlignmentCost)
         auto* c  = arena.allocate<char>(1);
         auto* i  = arena.allocate<int>(kBatchSize);
         auto* d  = arena.allocate<double>(kBatchSize);
-        Q_UNUSED(c); Q_UNUSED(i); Q_UNUSED(d);
+        (void)(c); (void)(i); (void)(d);
 
         arena.reset();
     }

@@ -75,6 +75,7 @@ add_library(beamlab_core STATIC
     src/app/ServiceRegistry.cpp
     src/app/CommandLineOptions.cpp
     src/core/foundation/NumericGuards.cpp
+    src/core/math/MemoryArena.cpp
     src/core/config/ConfigLoader.cpp
     src/core/config/ProfileManager.cpp
     src/core/storage/InMemoryStorage.cpp
@@ -137,13 +138,20 @@ FetchContent_MakeAvailable(nlohmann_json)
 
 target_link_libraries(beamlab_core PUBLIC nlohmann_json::nlohmann_json)
 
+# ── Per-target -Werror (project sources only, not _deps) ───────────
+# F5: zero warnings confirmed; promote to errors so they don't regress.
+target_compile_options(beamlab_core PRIVATE -Werror)
+
 add_executable(beamlab
     src/app/main.cpp
 )
 
 target_link_libraries(beamlab PRIVATE beamlab_core)
+target_compile_options(beamlab PRIVATE -Werror)
 
 add_subdirectory(src/domain)
+add_subdirectory(src/platform)
+add_subdirectory(src/services)
 
 if(BEAMLAB_ENABLE_QT_UI)
     # ── Biological simulator module ─────────────────────────────

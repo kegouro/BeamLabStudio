@@ -36,10 +36,15 @@ void ThreadPool::enqueue(std::function<void()> task)
 
 void ThreadPool::waitAll()
 {
-    std::promise<void> barrier;
-    auto future = barrier.get_future();
-    enqueue([&barrier]() { barrier.set_value(); });
-    future.wait();
+    // Spin until both queue is empty and no thread is active.
+    // ponytail: busy-yield polling for simplicity; upgrade: CV with active_==0 && queue.empty
+    while (true) {
+        {
+            std::lock_guard<std::mutex> lock(queueMutex_);
+            if (tasks_.empty() && active_.load() == 0) return;
+        }
+        std::this_thread::yield();
+    }
 }
 
 void ThreadPool::shutdown()

@@ -16,7 +16,7 @@ void ExporterRegistry::registerExporter(std::unique_ptr<IExporter> exporter)
 
 ExporterRegistry::MultiExportResult ExporterRegistry::exportAll(
     const storage::IStorageBackend& storage,
-    const analysis::AnalysisResult& result,
+    const analysis::AnalysisResult& inputResult,
     const fs::path& outputDir,
     const std::vector<std::string>& formats)
 {
@@ -46,12 +46,12 @@ ExporterRegistry::MultiExportResult ExporterRegistry::exportAll(
         fs::create_directories(formatDir);
 
         try {
-            auto result = it->second->exportData(
-                storage, result, formatDir, nullptr);
-            if (!result.success) {
+            auto exportResult = it->second->exportData(
+                storage, inputResult, formatDir, nullptr);
+            if (!exportResult.success) {
                 multi.overallSuccess = false;
             }
-            multi.results.emplace_back(fmt, std::move(result));
+            multi.results.emplace_back(fmt, std::move(exportResult));
         } catch (const std::exception& e) {
             multi.overallSuccess = false;
             multi.results.emplace_back(fmt, ExportResult{

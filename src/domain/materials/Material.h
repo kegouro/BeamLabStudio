@@ -206,7 +206,7 @@ inline void from_json(const nlohmann::json& j, Material& m)
     if (j.contains("sternheimer"))
         j.at("sternheimer").get_to(m.sternheimer);
 
-    j.at("radiationLength_cm").get_to(m.radiationLength_cm);
+    m.radiationLength_cm = j.value("radiationLength_cm", 0.0);  // optional; 0 = unknown
     m.nuclearIntLength_cm = j.value("nuclearIntLength_cm", 83.30);
     m.moliereRadius_cm = j.value("moliereRadius_cm", 9.0);
     m.WR = j.value("WR", 1.0);

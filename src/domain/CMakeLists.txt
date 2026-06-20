@@ -14,3 +14,6 @@ target_link_libraries(beamlab_domain PUBLIC
 )
 
 target_compile_features(beamlab_domain PRIVATE cxx_std_20)
+
+# F5: zero warnings confirmed; promote to errors so they don't regress.
+target_compile_options(beamlab_domain PRIVATE -Werror)

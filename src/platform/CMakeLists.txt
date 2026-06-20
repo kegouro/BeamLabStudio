@@ -19,3 +19,6 @@ if(UNIX)
 endif()
 
 target_compile_features(beamlab_platform PRIVATE cxx_std_20)
+
+# F5: per-target -Werror once platform layer is clean.
+# ponytail: platform warnings not audited; Werror deferred | techo: after F6 | upgrade: audit + fix

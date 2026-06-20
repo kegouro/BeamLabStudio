@@ -48,8 +48,11 @@ TEST(CommandBusTest, DispatchMultipleTypes)
     bus.registerHandler<NegateCmd, NegateRes>(
         std::make_unique<NegateHandler>());
 
-    EXPECT_EQ(bus.dispatch<DoublerCmd, DoublerRes>(DoublerCmd{10}).result, 20);
-    EXPECT_EQ(bus.dispatch<NegateCmd, NegateRes>(NegateCmd{10}).result, -10);
+    // Template args with commas confuse preprocessor — bind to variable first.
+    auto d = bus.dispatch<DoublerCmd, DoublerRes>(DoublerCmd{10});
+    EXPECT_EQ(d.result, 20);
+    auto n = bus.dispatch<NegateCmd, NegateRes>(NegateCmd{10});
+    EXPECT_EQ(n.result, -10);
 }
 
 // ── Error handling ─────────────────────────────────────────────────
@@ -58,9 +61,9 @@ TEST(CommandBusTest, UnregisteredThrows)
 {
     CommandBus bus;
     // No handler registered for this command type.
-
+    // Wrap in lambda to avoid preprocessor seeing the comma in template args.
     EXPECT_THROW(
-        bus.dispatch<DoublerCmd, DoublerRes>(DoublerCmd{99}),
+        ([&]{ bus.dispatch<DoublerCmd, DoublerRes>(DoublerCmd{99}); }()),
         std::runtime_error);
 }
 
@@ -72,8 +75,8 @@ TEST(CommandBusTest, DoubleRegistrationThrows)
 
     // Trying to register another handler for the same type should throw.
     EXPECT_THROW(
-        bus.registerHandler<DoublerCmd, DoublerRes>(
-            std::make_unique<DoublerHandler>()),
+        ([&]{ bus.registerHandler<DoublerCmd, DoublerRes>(
+                  std::make_unique<DoublerHandler>()); }()),
         std::runtime_error);
 }
 
@@ -101,7 +104,7 @@ TEST(CommandBusTest, ClearRemovesAllHandlers)
     bus.clear();
     EXPECT_FALSE(bus.hasHandler(std::type_index(typeid(DoublerCmd))));
     EXPECT_THROW(
-        bus.dispatch<DoublerCmd, DoublerRes>(DoublerCmd{1}),
+        ([&]{ bus.dispatch<DoublerCmd, DoublerRes>(DoublerCmd{1}); }()),
         std::runtime_error);
 }
 
