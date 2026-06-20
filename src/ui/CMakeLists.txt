@@ -54,6 +54,7 @@ add_executable(beamlab_ui
 
     # Presenters
     qt/presenters/AnalysisPresenter.cpp
+    qt/presenters/BioSimPresenter.cpp
 
     # Dockable system
 
@@ -81,6 +82,7 @@ endif()
 
 # ── Views (they are compiled with beamlab_ui since they depend on Qt) ──
 target_sources(beamlab_ui PRIVATE
+    views/BioSimView.cpp
 )
 
 # ── Include paths ──────────────────────────────────────────────────

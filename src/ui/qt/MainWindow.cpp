@@ -10,6 +10,8 @@
 #include "ui/qt/RunDashboardWidget.h"
 #include "ui/qt/Scene3DWidget.h"
 #include "ui/qt/StatsDashboardWidget.h"
+#include "ui/qt/presenters/BioSimPresenter.h"
+#include "ui/views/BioSimView.h"
 #include "ui/qt/shell/CommandPalette.h"
 #include "ui/qt/shell/NavigationRail.h"
 
@@ -1275,12 +1277,20 @@ void MainWindow::buildUi()
     (void)make_obj_viewer_page(lens_obj_viewer_);
 
 
-    bio_sim_widget_ = new beamlab::biosim::BioSimWidget();
+    // Active BioSim path (MVP): BioSimView drives BioSimPresenter, which runs
+    // the real BioSimRunner on a worker thread. The legacy BioSimWidget is no
+    // longer instantiated (kept in the tree for reference).
+    // ponytail: the presenter only needs registries for custom-material editing
+    //   (handled here by MaterialEditorDialog's own libraries), and BioSimRunner
+    //   needs none of them — so engine/materials/particles are nullptr.
+    bio_sim_presenter_ = new BioSimPresenter(
+        /*engine=*/nullptr, /*materials=*/nullptr, /*particles=*/nullptr, this);
+    bio_sim_view_ = new BioSimView(bio_sim_presenter_);
 
     info_widget_ = new InfoWidget();
 
     nav_rail_->addGroupHeader("SIMULACIÓN");
-    addSection("⚛", "BioSim", bio_sim_widget_);
+    addSection("⚛", "BioSim", bio_sim_view_);
     nav_rail_->addStretch();
     addSection("ⓘ", "Info & Docs", info_widget_);
 
@@ -2244,11 +2254,11 @@ void MainWindow::loadManifest(const QString& path)
     updateExportControls();
 
     // Auto-load BioSim CSV from run directory (energy_step_profile.csv).
-    if (bio_sim_widget_ != nullptr) {
+    if (bio_sim_view_ != nullptr) {
         const QDir run_dir(current_run_dir_);
         const QString bio_csv = run_dir.filePath("energy_step_profile.csv");
         if (QFileInfo::exists(bio_csv)) {
-            bio_sim_widget_->setCsvPath(bio_csv);
+            bio_sim_view_->setCsvPath(bio_csv);
         }
     }
 

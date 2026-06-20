@@ -1,8 +1,11 @@
 #include "ui/qt/presenters/BioSimPresenter.h"
 
+#include "biosim/core/BioSimRunner.h"
+
+#include <QFuture>
 #include <QMetaObject>
 #include <Qt>
-#include <QThread>
+#include <QtConcurrent/QtConcurrent>
 
 namespace beamlab::ui {
 
@@ -16,31 +19,61 @@ BioSimPresenter::BioSimPresenter(
     , materials_(materials)
     , particles_(particles)
 {
+    watcher_ = new QFutureWatcher<beamlab::biosim::BioSimResult>(this);
+    connect(watcher_, &QFutureWatcher<beamlab::biosim::BioSimResult>::finished,
+            this, &BioSimPresenter::onSimulationFinished);
 }
 
 void BioSimPresenter::runSimulation(
-    const domain::simulation::BioSimConfig& config)
+    const beamlab::biosim::BioSimConfig& config)
 {
+    if (watcher_->isRunning()) return;  // a run is already in flight
+
     cancelled_.store(false);
     emit simulationProgress(0);
 
-    auto* worker = QThread::create([this, config]() {
-        // TODO: implement full BioSimRunner integration here.
-        // For now, emit completion with an empty result.
-        cancelled_.store(false);
+    // Run BioSimRunner on a worker thread — it is stateless / thread-safe.
+    // The progress callback (1) marshals percent back to the Qt thread and
+    // (2) returns false once stopSimulation() flips cancelled_, which makes
+    // BioSimRunner::run abort and return result.valid = false. This is the
+    // real mid-run cancellation BioSimWidget::onStop could not perform.
+    QFuture<beamlab::biosim::BioSimResult> future =
+        QtConcurrent::run([this, config]() -> beamlab::biosim::BioSimResult {
+            beamlab::biosim::BioSimRunner runner;
+            return runner.run(config, [this](int percent) -> bool {
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, percent]() { emit simulationProgress(percent); },
+                    Qt::QueuedConnection);
+                return !cancelled_.load();
+            });
+        });
 
-        QMetaObject::invokeMethod(this, [this]() {
-            emit simulationProgress(100);
-            emit simulationCompleted(
-                std::make_shared<domain::simulation::BioSimResult>());
-        }, Qt::QueuedConnection);
-    });
-    worker->start();
+    watcher_->setFuture(future);
 }
 
 void BioSimPresenter::stopSimulation()
 {
+    // The atomic flag is the real cancellation: the progress callback returns
+    // false on the next tick, BioSimRunner::run aborts, the future finishes and
+    // onSimulationFinished() discards the abandoned result.
+    // ponytail: QtConcurrent::run futures aren't cancellable mid-compute, so we
+    //   don't call watcher_->cancel(); the flag + finished-time guard is enough.
     cancelled_.store(true);
+}
+
+void BioSimPresenter::onSimulationFinished()
+{
+    // The future always completes — either with a real result or, if the user
+    // hit Stop, with an aborted (valid == false) one we discard.
+    if (cancelled_.load()) {
+        cancelled_.store(false);
+        return;
+    }
+
+    emit simulationProgress(100);
+    emit simulationCompleted(
+        std::make_shared<beamlab::biosim::BioSimResult>(watcher_->result()));
 }
 
 void BioSimPresenter::addCustomMaterial(

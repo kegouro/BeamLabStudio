@@ -3,13 +3,20 @@
 #include "domain/simulation/SimulationEngine.h"
 #include "domain/materials/MaterialRegistry.h"
 #include "domain/physics/ParticleRegistry.h"
-#include "domain/simulation/BioSimConfig.h"
-#include "domain/simulation/BioSimResult.h"
 
+// The real, working biosim types live in src/biosim/core
+// (namespace beamlab::biosim).  The previously-included
+// domain/simulation/BioSim{Config,Result}.h headers never existed —
+// BioSimRunner is the engine this presenter drives.
+#include "biosim/core/BioSimConfig.h"
+#include "biosim/core/BioSimResult.h"
+
+#include <QFutureWatcher>
 #include <QObject>
 #include <QString>
 #include <QStringList>
 
+#include <atomic>
 #include <memory>
 
 namespace beamlab::ui {
@@ -31,7 +38,7 @@ public:
         { return engine_; }
 
 public slots:
-    void runSimulation(const domain::simulation::BioSimConfig& config);
+    void runSimulation(const beamlab::biosim::BioSimConfig& config);
     void stopSimulation();
     void addCustomMaterial(const domain::materials::Material& mat);
     void removeCustomMaterial(const QString& name);
@@ -39,14 +46,23 @@ public slots:
 signals:
     void simulationProgress(int percent);
     void simulationCompleted(
-        std::shared_ptr<domain::simulation::BioSimResult> result);
+        std::shared_ptr<beamlab::biosim::BioSimResult> result);
     void materialListUpdated(const QStringList& materialNames);
 
 private:
+    void onSimulationFinished();
+
     domain::simulation::SimulationEngine* engine_;
     domain::materials::MaterialRegistry* materials_;
     domain::physics::ParticleRegistry* particles_;
 
+    // Async run via QtConcurrent; the watcher lets onStop() cancel and lets
+    // us pull the BioSimResult on the Qt thread when the future finishes.
+    QFutureWatcher<beamlab::biosim::BioSimResult>* watcher_{nullptr};
+
+    // Set by stopSimulation(); checked in the progress callback (real
+    // mid-run cancellation) and in onSimulationFinished() (ignore a late
+    // result the user already abandoned).
     std::atomic<bool> cancelled_{false};
 };
 

@@ -44,6 +44,8 @@ class InteractiveGraphicsView;
 class NavigationRail;
 class RunDashboardWidget;
 class StatsDashboardWidget;
+class BioSimPresenter;
+class BioSimView;
 
 class ObjViewerWidget;
 class Scene3DWidget;
@@ -133,7 +135,11 @@ private:
     RunDashboardWidget* dashboard_{nullptr};
     StatsDashboardWidget* statistics_dashboard_{nullptr};
     InfoWidget* info_widget_{nullptr};
+    // Legacy direct widget — kept for reference, no longer instantiated.
+    // The active BioSim path is bio_sim_view_ + bio_sim_presenter_ (MVP).
     beamlab::biosim::BioSimWidget* bio_sim_widget_{nullptr};
+    BioSimPresenter* bio_sim_presenter_{nullptr};
+    BioSimView*      bio_sim_view_{nullptr};
 
     QTableWidget* trajectories_table_{nullptr};
     QTableWidget* focal_slice_table_{nullptr};
