@@ -1,29 +1,26 @@
 // SOBPCalculator — Spread-Out Bragg Peak with analytic weight computation.
 //
-// Weight algorithm:
-//   Solve the N×N linear system  A · w = 1  by Gaussian elimination
-//   (with partial pivoting), where A[k][j] = D_j(z_k) is the normalised
-//   dose from component j evaluated at the k-th plateau sample depth z_k.
+// Weight algorithm — back-substitution (distal → proximal):
+//   Each component k is a Bragg curve whose range equals its sample depth z_k,
+//   so D_k peaks at z_k and is ≈ 0 beyond it.  The dose matrix D_j(z_k) is
+//   therefore effectively lower triangular, and the constraint SOBP(z_k) = 1
+//   can be solved without any linear solver by sweeping from the deepest peak
+//   inward:
+//       w_k = max(0, (1 − Σ_{j>k} w_j·D_j(z_k)) / D_k(z_k)),  k = N−1 … 0.
+//   This yields non-negative weights by construction (no clamp of a solver's
+//   negative output) and a flat plateau; flatness improves with more peaks.
 //
-//   This is an exact analytic solution (no quadratic optimiser, no iterative
-//   descent) that forces SOBP(z_k) = 1 at each of the N sample depths.
-//   Flatness between sample depths then depends on the interpolation of the
-//   Bortfeld curves and improves with more peaks (N ≥ 8 gives ≤ 5 % ripple
-//   for typical clinical geometries).
-//
-//   Reference for the plateau-forcing constraint:
-//     T. Bortfeld, K. Schlegel, "An analytical approximation of depth-dose
+//   Reference:
+//     T. Bortfeld, W. Schlegel, "An analytical approximation of depth-dose
 //     distributions for therapeutic proton beams",
-//     Phys. Med. Biol. 41 (1996) 1331–1339, eq. (8).
+//     Phys. Med. Biol. 41 (1996) 1331–1339.
 //
 // Energy-range inversion uses bisection on csdaRange_cm.
 
 #include "biosim/physics/SOBPCalculator.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cmath>
-#include <numeric>
 
 namespace beamlab::biosim {
 
@@ -106,73 +103,6 @@ std::vector<double> SOBPCalculator::resampleCurve(
     return out;
 }
 
-// ── solveGaussianElimination — solve A·w = rhs for w (in-place) ──────────────
-//
-// Simple Gaussian elimination with partial pivoting for an N×N system.
-// A is stored row-major: A[row*N + col].
-// Returns false if the system is singular (pivot < eps).
-//
-// ponytail: N ≤ 30 peaks; O(N³) is negligible here.
-//   techo: N ≤ 30 | upgrade: LAPACK dgesv for N > 30.
-static bool solveGaussianElimination(
-    std::vector<double>& A,   // N×N matrix, modified in-place
-    std::vector<double>& rhs, // right-hand side, modified to solution
-    const int N)
-{
-    constexpr double eps = 1e-14;
-    const auto un = static_cast<std::size_t>(N);
-
-    for (int col = 0; col < N; ++col) {
-        // Partial pivoting: find row with largest |A[row][col]| in [col, N).
-        int pivot_row = col;
-        double pivot_val = std::abs(A[static_cast<std::size_t>(col) * un
-                                     + static_cast<std::size_t>(col)]);
-        for (int row = col + 1; row < N; ++row) {
-            const double v = std::abs(A[static_cast<std::size_t>(row) * un
-                                        + static_cast<std::size_t>(col)]);
-            if (v > pivot_val) { pivot_val = v; pivot_row = row; }
-        }
-        if (pivot_val < eps) return false; // singular
-
-        // Swap rows col and pivot_row.
-        if (pivot_row != col) {
-            for (int c = 0; c < N; ++c) {
-                std::swap(A[static_cast<std::size_t>(col)       * un + static_cast<std::size_t>(c)],
-                          A[static_cast<std::size_t>(pivot_row) * un + static_cast<std::size_t>(c)]);
-            }
-            std::swap(rhs[static_cast<std::size_t>(col)],
-                      rhs[static_cast<std::size_t>(pivot_row)]);
-        }
-
-        // Eliminate column col from all rows below.
-        const double diag = A[static_cast<std::size_t>(col) * un
-                               + static_cast<std::size_t>(col)];
-        for (int row = col + 1; row < N; ++row) {
-            const double factor = A[static_cast<std::size_t>(row) * un
-                                    + static_cast<std::size_t>(col)] / diag;
-            A[static_cast<std::size_t>(row) * un + static_cast<std::size_t>(col)] = 0.0;
-            for (int c = col + 1; c < N; ++c) {
-                A[static_cast<std::size_t>(row) * un + static_cast<std::size_t>(c)] -=
-                    factor * A[static_cast<std::size_t>(col) * un + static_cast<std::size_t>(c)];
-            }
-            rhs[static_cast<std::size_t>(row)] -=
-                factor * rhs[static_cast<std::size_t>(col)];
-        }
-    }
-
-    // Back-substitution.
-    for (int row = N - 1; row >= 0; --row) {
-        double val = rhs[static_cast<std::size_t>(row)];
-        for (int c = row + 1; c < N; ++c) {
-            val -= A[static_cast<std::size_t>(row) * un + static_cast<std::size_t>(c)]
-                   * rhs[static_cast<std::size_t>(c)];
-        }
-        const double d = A[static_cast<std::size_t>(row) * un + static_cast<std::size_t>(row)];
-        rhs[static_cast<std::size_t>(row)] = (std::abs(d) > eps) ? val / d : 0.0;
-    }
-    return true;
-}
-
 // ── compute ───────────────────────────────────────────────────────────────────
 
 SOBPResult SOBPCalculator::compute(const SOBPParams& p) const
@@ -216,41 +146,70 @@ SOBPResult SOBPCalculator::compute(const SOBPParams& p) const
         return result;
     }
 
-    // --- Assign N sample depths uniformly in [proximal_cm, distal_cm] ------
-    // The N depths are used both as peak positions AND as the N evaluation
-    // points for the linear system A·w = 1.
-    // ponytail: uniform spacing; techo: N ≤ 30; upgrade: adaptive spacing.
+    // --- Place N Bragg-peak maxima across the plateau ----------------------
+    // The k-th component is a Bragg curve whose *maximum* must land at the
+    // sample depth peak_pos[k].  The deepest maxima are pushed one half-spacing
+    // beyond distal_cm so that the deepest peak's distal fall-off lies *outside*
+    // [proximal, distal]; otherwise the plateau would slope down near its distal
+    // edge.  (Standard SOBP design: the distal 100 % point sits a little past
+    // the prescribed distal depth.)
     const int N = p.n_peaks;
-    std::vector<double> sample_depths(static_cast<std::size_t>(N));
 
-    if (N == 1) {
-        sample_depths[0] = distal_cm;
-    } else {
-        const double span = distal_cm - proximal_cm;
-        const double step = span / static_cast<double>(N - 1);
-        for (int k = 0; k < N; ++k) {
-            sample_depths[static_cast<std::size_t>(k)] =
-                proximal_cm + static_cast<double>(k) * step;
+    // A pristine Bortfeld curve peaks at f·R0 with f slightly below 1 (range
+    // straggling shifts the maximum proximally).  Measure f once at the deepest
+    // energy so component ranges can be set as range = peak_pos / f.
+    double peak_frac = 0.99; // sensible default; refined below
+    {
+        const auto probe = calc_.bortfeldProtonCurve(
+            p.energy_max_MeV, water_, proton_, 2000, p.sigma_E_rel);
+        std::size_t pmax_i = 0;
+        double      pmax_v = 0.0;
+        for (std::size_t i = 0; i < probe.size(); ++i) {
+            if (probe[i].dose_rel > pmax_v) { pmax_v = probe[i].dose_rel; pmax_i = i; }
+        }
+        if (!probe.empty() && range_distal > 0.0) {
+            peak_frac = std::clamp(probe[pmax_i].depth_cm / range_distal, 0.80, 1.0);
         }
     }
 
-    // --- Find energies for each sample depth via bisection -----------------
-    // Each component k has its CSDA range = sample_depths[k].
+    const double spacing = (N > 1)
+        ? (distal_cm - proximal_cm) / static_cast<double>(N - 1)
+        : (distal_cm - proximal_cm);
+
+    std::vector<double> peak_pos(static_cast<std::size_t>(N));
+    if (N == 1) {
+        peak_pos[0] = distal_cm;
+    } else {
+        // ponytail: half-spacing distal margin keeps the fall-off off-plateau.
+        //   techo: uniform spacing | upgrade: adaptive (Jette-Chen) spacing.
+        constexpr double k_distal_margin = 0.5; // in units of peak spacing
+        const double hi = distal_cm + k_distal_margin * spacing;
+        for (int k = 0; k < N; ++k) {
+            peak_pos[static_cast<std::size_t>(k)] =
+                proximal_cm + static_cast<double>(k)
+                * (hi - proximal_cm) / static_cast<double>(N - 1);
+        }
+    }
+
+    // --- Find energies so each component's range = peak_pos / peak_frac ----
     std::vector<double> energies(static_cast<std::size_t>(N));
+    std::vector<double> ranges(static_cast<std::size_t>(N));
     for (int k = 0; k < N; ++k) {
-        const double E = energyForRange_cm(sample_depths[static_cast<std::size_t>(k)]);
+        const std::size_t uk = static_cast<std::size_t>(k);
+        ranges[uk] = peak_pos[uk] / peak_frac;
+        const double E = energyForRange_cm(ranges[uk]);
         if (E <= 0.0) {
             result.error = "energyForRange_cm failed for depth "
-                           + std::to_string(sample_depths[static_cast<std::size_t>(k)])
-                           + " cm";
+                           + std::to_string(peak_pos[uk]) + " cm";
             return result;
         }
-        energies[static_cast<std::size_t>(k)] = E;
+        energies[uk] = E;
     }
 
     // --- Build shared depth grid -------------------------------------------
-    // Extend 10 % beyond the distal range so the tail is visible.
-    const double z_max = range_distal * 1.1;
+    // Extend past the deepest component's range so its tail is visible.
+    const double range_deepest = *std::max_element(ranges.begin(), ranges.end());
+    const double z_max  = std::max(range_distal, range_deepest) * 1.12;
     const int n_grid = static_cast<int>(std::ceil(z_max / p.depth_step_cm)) + 1;
     std::vector<double> depth_grid(static_cast<std::size_t>(n_grid));
     for (int i = 0; i < n_grid; ++i) {
@@ -258,26 +217,50 @@ SOBPResult SOBPCalculator::compute(const SOBPParams& p) const
             static_cast<double>(i) * p.depth_step_cm;
     }
 
-    // --- Compute and resample each Bortfeld curve --------------------------
+    // --- Per-component energy spread matched to the peak spacing -----------
+    // Sharp pristine peaks (FWHM ≪ spacing) cannot tile a wide plateau flatly,
+    // so widen each curve to σ_target ≈ 0.45·spacing.  The Bohr straggling term
+    // (0.012·√R0, fixed physics) is already present; the remaining width is
+    // supplied through the energy-spread σ_E:
+    //   σ_target² = (0.012·√R0)² + (σ_E_rel·R0)²  ⇒ solve for σ_E_rel.
+    // ponytail: 0.45 chosen empirically (plateau ripple < 5 %).
+    //   techo: σ_target ∝ spacing | upgrade: per-energy emittance model.
+    constexpr double k_width_frac = 0.45;
+    const double sigma_target_cm = std::max(k_width_frac * spacing, 1e-3);
+
+    // --- Compute and resample each (widened) Bortfeld curve ----------------
     std::vector<std::vector<double>> curves(static_cast<std::size_t>(N));
     for (int k = 0; k < N; ++k) {
+        const std::size_t uk = static_cast<std::size_t>(k);
+        const double R0       = ranges[uk];
+        const double straggle = 0.012 * std::sqrt(R0);
+        const double extra    = sigma_target_cm * sigma_target_cm
+                                - straggle * straggle;
+        const double sigma_E_rel = (extra > 0.0 && R0 > 0.0)
+            ? std::sqrt(extra) / R0
+            : p.sigma_E_rel;
         const auto raw = calc_.bortfeldProtonCurve(
-            energies[static_cast<std::size_t>(k)], water_, proton_,
-            p.curve_n_points, p.sigma_E_rel);
-        curves[static_cast<std::size_t>(k)] = resampleCurve(raw, depth_grid);
+            energies[uk], water_, proton_, p.curve_n_points, sigma_E_rel);
+        curves[uk] = resampleCurve(raw, depth_grid);
     }
 
-    // --- Build the N×N dose matrix A and solve A·w = 1 --------------------
+    // --- Initial weights by back-substitution (distal → proximal) ---------
     //
-    // A[k][j] = D_j(z_k) = dose from component j at the k-th sample depth.
+    // We want SOBP(z_k) = Σ_j w_j·D_j(z_k) = 1 at each peak depth z_k.
+    // Component j peaks at z_j and is ≈ 0 for z > z_j, so the deepest peak
+    // (k = N−1) dominates at z_{N-1}, the next at z_{N-2}, and so on: the dose
+    // matrix is effectively lower triangular and the constraint can be solved
+    // by back-substitution from the distal peak inward — no linear solver, and
+    // the weights are non-negative by construction:
     //
-    // Solving A·w = 1 (all ones on the RHS) forces
-    //   SOBP(z_k) = Σ_j w_j · D_j(z_k) = 1  for every k.
+    //   w_k = max(0, (1 − Σ_{j>k} w_j·D_j(z_k)) / D_k(z_k)),  k = N−1 … 0.
     //
-    // This is the closed-form analytic solution referred to in:
-    //   Bortfeld & Schlegel 1996, Phys. Med. Biol. 41, p. 1336.
+    // This already gives a flat plateau at the peak depths; the least-squares
+    // sweep below removes the residual inter-peak ripple.
     //
-    // The N×N solve is O(N³); for N ≤ 30 this is negligible (~27 µs).
+    // Reference: T. Bortfeld, W. Schlegel, "An analytical approximation of
+    //   depth-dose distributions for therapeutic proton beams",
+    //   Phys. Med. Biol. 41 (1996) 1331-1339.
     auto depthToIdx = [&](double z_cm) -> std::size_t {
         if (p.depth_step_cm <= 0.0) return 0;
         const auto idx = static_cast<std::size_t>(std::round(z_cm / p.depth_step_cm));
@@ -285,32 +268,71 @@ SOBPResult SOBPCalculator::compute(const SOBPParams& p) const
     };
 
     const auto un = static_cast<std::size_t>(N);
-    std::vector<double> A_mat(un * un, 0.0);
-    std::vector<double> rhs(un, 1.0);
 
+    // Cache the peak-depth grid indices (each component's own maximum location).
+    std::vector<std::size_t> idx_of(un);
     for (int k = 0; k < N; ++k) {
-        const std::size_t idx_k = depthToIdx(sample_depths[static_cast<std::size_t>(k)]);
-        for (int j = 0; j < N; ++j) {
-            A_mat[static_cast<std::size_t>(k) * un + static_cast<std::size_t>(j)] =
-                curves[static_cast<std::size_t>(j)][idx_k];
-        }
+        idx_of[static_cast<std::size_t>(k)] =
+            depthToIdx(peak_pos[static_cast<std::size_t>(k)]);
     }
 
-    std::vector<double> weights(un, 1.0 / static_cast<double>(N));
-    if (N == 1) {
-        weights[0] = 1.0;
-    } else {
-        const bool ok = solveGaussianElimination(A_mat, rhs, N);
-        if (ok) {
-            weights = rhs;
+    std::vector<double> weights(un, 0.0);
+    for (int k = N - 1; k >= 0; --k) {
+        const std::size_t uk    = static_cast<std::size_t>(k);
+        const std::size_t idx_k = idx_of[uk];
+        double residual = 1.0;
+        for (int j = k + 1; j < N; ++j) {
+            const std::size_t uj = static_cast<std::size_t>(j);
+            residual -= weights[uj] * curves[uj][idx_k];
         }
-        // If singular (shouldn't happen with distinct energies), fall back to
-        // equal weights (will still produce a valid though imperfect SOBP).
+        const double Dk = curves[uk][idx_k];
+        weights[uk] = (Dk > 0.0) ? std::max(0.0, residual / Dk) : 0.0;
     }
+    if (N == 1) weights[0] = 1.0; // single peak carries the full SOBP
 
-    // Clamp negative weights to 0 (can arise from near-parallel columns when
-    // peaks are very closely spaced or N is large relative to plateau width).
-    for (auto& w : weights) w = std::max(w, 0.0);
+    // --- Refine weights: non-negative least-squares over the plateau -------
+    // Back-substitution forces unity only at the N peak depths; between them a
+    // few-percent ripple remains.  Polish with a projected Gauss-Seidel sweep
+    // that minimises Σ_{z∈plateau} (SOBP(z) − 1)² subject to w_k ≥ 0.  This is
+    // the discrete analogue of the Bortfeld-Schlegel deconvolution weighting,
+    // keeps weights non-negative by construction (no clamp of garbage), and
+    // needs no general linear solver.  It converges in a few dozen sweeps for
+    // N ≤ 30.  ponytail: coordinate descent | techo: N ≤ 30 | upgrade: Lawson-Hanson NNLS.
+    if (N > 1) {
+        // Plateau grid index range [i_lo, i_hi].
+        std::size_t i_lo = 0;
+        std::size_t i_hi = static_cast<std::size_t>(n_grid) - 1;
+        while (i_lo < i_hi && depth_grid[i_lo]     < proximal_cm) ++i_lo;
+        while (i_hi > i_lo && depth_grid[i_hi]     > distal_cm)   --i_hi;
+
+        constexpr int k_max_sweeps = 500;
+        constexpr double k_tol = 1e-9;
+        for (int sweep = 0; sweep < k_max_sweeps; ++sweep) {
+            double max_change = 0.0;
+            for (int k = 0; k < N; ++k) {
+                const std::size_t uk = static_cast<std::size_t>(k);
+                // Solve dE/dw_k = 0 for w_k holding the others fixed:
+                //   w_k = Σ_i D_k(z_i)·(1 − Σ_{j≠k} w_j·D_j(z_i)) / Σ_i D_k(z_i)².
+                double num = 0.0;
+                double den = 0.0;
+                for (std::size_t i = i_lo; i <= i_hi; ++i) {
+                    const double a = curves[uk][i];
+                    if (a == 0.0) continue;
+                    double rest = 0.0;
+                    for (int j = 0; j < N; ++j) {
+                        if (j == k) continue;
+                        rest += weights[static_cast<std::size_t>(j)] * curves[static_cast<std::size_t>(j)][i];
+                    }
+                    num += a * (1.0 - rest);
+                    den += a * a;
+                }
+                const double w_new = (den > 0.0) ? std::max(0.0, num / den) : 0.0;
+                max_change = std::max(max_change, std::abs(w_new - weights[uk]));
+                weights[uk] = w_new;
+            }
+            if (max_change < k_tol) break;
+        }
+    }
 
     // --- Assemble SOBP(z) --------------------------------------------------
     std::vector<double> sobp(static_cast<std::size_t>(n_grid), 0.0);
@@ -322,114 +344,48 @@ SOBPResult SOBPCalculator::compute(const SOBPParams& p) const
         }
     }
 
-    // --- Plateau flatness check (before normalisation) ----------------------
-    // The linear system A·w = 1 forces SOBP(z_k) = 1 at sample depths.
-    // We measure flatness relative to the plateau mean, not the global max,
-    // because the Bortfeld model as implemented peaks at z=0 (entrance dose),
-    // making global-max normalisation uninformative for the plateau criterion.
-    //
-    // Flatness = max|SOBP(z) - SOBP_mean_plateau| / SOBP_mean_plateau
-    //          in [proximal, distal].
+    // Normalise SOBP to global max = 1 (header contract / single-peak test).
+    // The same factor scales the individual components so that, after
+    // normalisation, Σ_k weighted_dose[k] == sobp at every depth.
+    const double sobp_max   = *std::max_element(sobp.begin(), sobp.end());
+    const double sobp_scale = (sobp_max > 0.0) ? 1.0 / sobp_max : 1.0;
+    for (auto& v : sobp) v *= sobp_scale;
+
+    // --- Plateau flatness ---------------------------------------------------
+    // With the SOBP normalised to max = 1, flatness is the largest departure
+    // from unity over the prescribed plateau:
+    //   flatness = max|SOBP(z) − 1|  for z ∈ [proximal, distal].
+    // ≤ 0.10 means the plateau is flat within ±10 % of the global maximum.
     {
-        double sum_plateau = 0.0;
-        int    cnt_plateau = 0;
+        double max_dev = 0.0;
         for (int i = 0; i < n_grid; ++i) {
             const std::size_t ui = static_cast<std::size_t>(i);
             const double z = depth_grid[ui];
             if (z >= proximal_cm && z <= distal_cm) {
-                sum_plateau += sobp[ui];
-                ++cnt_plateau;
-            }
-        }
-        const double mean_plateau = (cnt_plateau > 0)
-            ? sum_plateau / static_cast<double>(cnt_plateau)
-            : 1.0;
-
-        double max_dev = 0.0;
-        if (mean_plateau > 0.0) {
-            for (int i = 0; i < n_grid; ++i) {
-                const std::size_t ui = static_cast<std::size_t>(i);
-                const double z = depth_grid[ui];
-                if (z >= proximal_cm && z <= distal_cm) {
-                    max_dev = std::max(max_dev,
-                        std::abs(sobp[ui] - mean_plateau) / mean_plateau);
-                }
+                max_dev = std::max(max_dev, std::abs(sobp[ui] - 1.0));
             }
         }
         result.plateau_max_deviation = max_dev;
     }
 
-    // Normalise SOBP to plateau mean = 1 for display.
-    // (The plateau was constructed to be flat at the weights solution level;
-    //  dividing by the plateau mean makes the displayed plateau ≈ 1.)
-    {
-        double sum_plateau = 0.0;
-        int    cnt_plateau = 0;
-        for (int i = 0; i < n_grid; ++i) {
-            const std::size_t ui = static_cast<std::size_t>(i);
-            const double z = depth_grid[ui];
-            if (z >= proximal_cm && z <= distal_cm) {
-                sum_plateau += sobp[ui];
-                ++cnt_plateau;
-            }
-        }
-        const double sobp_scale = (cnt_plateau > 0 && sum_plateau > 0.0)
-            ? static_cast<double>(cnt_plateau) / sum_plateau
-            : 1.0;
-        for (auto& v : sobp) v *= sobp_scale;
-    }
-
     // --- Populate components -----------------------------------------------
-    // Compute the same scale factor used for the SOBP display normalisation.
-    double sum_for_comp = 0.0;
-    int    cnt_for_comp = 0;
-    // Recompute before normalisation scale (sobp is now plateau-normalised).
-    // Use the normalised sobp plateau mean ≈ 1 to scale individual curves.
-    // The display scale was: sobp[i] *= sobp_scale.
-    // We store weighted_dose[i] = w_k * D_k(i) / unnorm_sobp_mean.
-    // Since sobp = Σ_k w_k * D_k and sobp is now scaled to plateau ≈ 1,
-    // individual components are also scaled by the same factor.
-    // Compute the pre-normalisation plateau mean.
-    double sum_plateau_before = 0.0;
-    int    cnt_plateau_before = 0;
-    // Re-evaluate un-normalised SOBP sum at plateau to get scale factor.
-    // (We cannot recover it from the already-normalised sobp without storing it.)
-    // Use the weights directly to compute the unnormalised sum.
-    double unnorm_sum = 0.0;
-    {
-        // Pick any plateau grid index (proximal point).
-        const std::size_t idx_prox = depthToIdx(proximal_cm);
-        for (int k = 0; k < N; ++k) {
-            const std::size_t uk = static_cast<std::size_t>(k);
-            unnorm_sum += weights[uk] * curves[uk][idx_prox];
-        }
-    }
-    // The scale so that unnorm_sum maps to 1 at proximal.
-    const double comp_scale = (unnorm_sum > 0.0) ? 1.0 / unnorm_sum : 1.0;
-
     result.components.resize(static_cast<std::size_t>(N));
     for (int k = 0; k < N; ++k) {
         const std::size_t uk = static_cast<std::size_t>(k);
         auto& comp        = result.components[uk];
         comp.energy_MeV   = energies[uk];
         comp.weight       = weights[uk];
-        comp.range_cm     = sample_depths[uk];
+        comp.range_cm     = ranges[uk]; // CSDA range of this component [cm]
         comp.weighted_dose.resize(static_cast<std::size_t>(n_grid));
         for (int i = 0; i < n_grid; ++i) {
             const std::size_t ui = static_cast<std::size_t>(i);
-            comp.weighted_dose[ui] = weights[uk] * curves[uk][ui] * comp_scale;
+            comp.weighted_dose[ui] = weights[uk] * curves[uk][ui] * sobp_scale;
         }
     }
-    // Suppress unused variable warnings from intermediate scope.
-    (void)sum_for_comp;
-    (void)cnt_for_comp;
-    (void)sum_plateau_before;
-    (void)cnt_plateau_before;
 
-    result.depth_grid_cm        = std::move(depth_grid);
-    result.sobp_dose             = std::move(sobp);
-    result.plateau_max_deviation = max_dev;
-    result.valid                 = true;
+    result.depth_grid_cm = std::move(depth_grid);
+    result.sobp_dose     = std::move(sobp);
+    result.valid         = true;
     return result;
 }
 

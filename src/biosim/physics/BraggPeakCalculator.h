@@ -72,18 +72,27 @@ public:
         double sigma_E_rel = 0.01) const;
 
 private:
-    // Evaluate D(z) from Bortfeld 1997, eq. (9), at depth z_cm.
-    // Returns unnormalised dose [a.u.].
+    // Evaluate the Bortfeld 1997 closed-form depth-dose D(z) (Med.Phys. 24:2024,
+    // eqs. 27-28) at depth z_cm.  Returns unnormalised dose [a.u.].
+    //   R0_cm    : CSDA range [cm]
+    //   sigma_cm : range-straggling width σ [cm]
+    //   p        : Bragg-Kleeman exponent (1.77 for water)
+    //   k        : nuclear-reaction tail scaling factor (∝ ε, ≈ 0.01394)
     double bortfeldDoseAtDepth(double z_cm,
                                 double R0_cm,
                                 double sigma_cm,
-                                double p) const;
+                                double p,
+                                double k) const;
 
-    // Normal CDF φ(x) = 0.5·erfc(−x/√2)
-    static double normalCDF(double x);
+    // Gaussian-weighted parabolic cylinder function  g(a,x) = e^{−x²/4}·D_a(x),
+    // the building block of the Bortfeld closed form (Bortfeld 1997, eq. 27).
+    // For x < −12 uses the asymptotic √(2π)/Γ(−a)·(−x)^(−a−1); otherwise
+    // evaluates D_a(x) via Kummer's confluent hypergeometric function.
+    static double cylGauss(double a, double x);
 
-    // Beta function B(a, b) via lgamma
-    static double betaFunction(double a, double b);
+    // Kummer confluent hypergeometric function ₁F₁(a;b;z) via its power series
+    // (Abramowitz & Stegun 13.1.2).
+    static double kummerM(double a, double b, double z);
 };
 
 } // namespace beamlab::biosim

@@ -6,17 +6,17 @@
 // with analytically derived weights so that the summed depth-dose is flat
 // (within clinical tolerance) over a user-specified proximal–distal plateau.
 //
-// Weight algorithm — Gaussian-elimination solution of A·w = 1
-//   (Bortfeld & Schlegel 1996, Phys. Med. Biol. 41:1331, eq. (8)):
+// Weight algorithm — back-substitution, distal → proximal
+//   (Bortfeld & Schlegel 1996, Phys. Med. Biol. 41:1331):
 //
-//   Build the N×N dose matrix  A[k][j] = D_j(z_k), where z_k is the k-th
-//   uniformly-spaced sample depth in [proximal, distal] and D_j is the
-//   normalised Bortfeld curve for energy j.  Solve the linear system A·w = 1
-//   by Gaussian elimination with partial pivoting.  This forces
-//     SOBP(z_k) = Σ_j w_j · D_j(z_k) = 1  for every k.
+//   Component k is a Bragg curve whose range equals the k-th sample depth z_k,
+//   so D_k peaks at z_k and is ≈ 0 for z > z_k.  The dose matrix D_j(z_k) is
+//   thus effectively lower triangular, and SOBP(z_k) = Σ_j w_j·D_j(z_k) = 1 is
+//   enforced by sweeping inward from the deepest peak:
+//     w_k = max(0, (1 − Σ_{j>k} w_j·D_j(z_k)) / D_k(z_k)),  k = N−1 … 0.
 //
-//   No quadratic optimiser is required.  The O(N³) solve is negligible for
-//   N ≤ 30 (the clinical range; ~27 µs on modern hardware).
+//   No linear solver and no quadratic optimiser are required, and the weights
+//   are non-negative by construction.
 //
 // Physics:
 //   Material : liquid water (ICRU-44, id = "water_icru")

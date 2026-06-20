@@ -8,16 +8,49 @@ namespace beamlab::biosim {
 
 // ── Static helpers ────────────────────────────────────────────────────────────
 
-double BraggPeakCalculator::normalCDF(const double x)
+double BraggPeakCalculator::kummerM(const double a, const double b, const double z)
 {
-    // φ(x) = 0.5 · erfc(−x / √2)
-    return 0.5 * std::erfc(-x / std::sqrt(2.0));
+    // ₁F₁(a;b;z) = Σ_{n≥0} (a)_n / (b)_n · z^n / n!   (A&S 13.1.2)
+    // Ratio recurrence on the term avoids overflow of the rising factorials.
+    double term = 1.0; // n = 0 term
+    double sum  = 1.0;
+    constexpr int k_max_terms = 500;
+    for (int n = 0; n < k_max_terms; ++n) {
+        term *= (a + static_cast<double>(n)) / (b + static_cast<double>(n))
+                * z / static_cast<double>(n + 1);
+        sum += term;
+        if (std::abs(term) <= 1e-16 * std::abs(sum)) break;
+    }
+    return sum;
 }
 
-double BraggPeakCalculator::betaFunction(const double a, const double b)
+double BraggPeakCalculator::cylGauss(const double a, const double x)
 {
-    // B(a,b) = exp(lgamma(a) + lgamma(b) - lgamma(a+b))
-    return std::exp(std::lgamma(a) + std::lgamma(b) - std::lgamma(a + b));
+    // g(a,x) = e^{−x²/4} · D_a(x), with D_a the parabolic cylinder function;
+    // this product is the building block of the Bortfeld closed form (eq. 27).
+    //
+    // For very negative x the Kummer series loses accuracy, so use the standard
+    // asymptotic D_a(x) ~ √(2π)/Γ(−a) · (−x)^(−a−1) · e^{x²/4} (A&S 19.8.1),
+    // hence g(a,x) → √(2π)/Γ(−a) · (−x)^(−a−1).  Branch at x = −12 matches the
+    // Bortfeld reference implementation (gray.mgh.harvard.edu BraggCurve.py).
+    constexpr double k_branch   = -12.0;
+    constexpr double k_sqrt_pi  = 1.7724538509055160273; // √π
+    constexpr double k_sqrt_2pi = 2.5066282746310005024; // √(2π)
+
+    if (x < k_branch) {
+        return k_sqrt_2pi / std::tgamma(-a) * std::pow(-x, -a - 1.0);
+    }
+
+    // D_a(x) = 2^{a/2} e^{−x²/4} [ √π/Γ((1−a)/2) · M(−a/2, 1/2, x²/2)
+    //                            − √(2π)·x/Γ(−a/2) · M((1−a)/2, 3/2, x²/2) ]
+    //                                                            (A&S 19.3.1)
+    // Folding in the leading e^{−x²/4} yields the e^{−x²/4} factor below.
+    const double zz    = x * x / 2.0;
+    const double term1 = k_sqrt_pi  / std::tgamma((1.0 - a) / 2.0)
+                         * kummerM(-a / 2.0, 0.5, zz);
+    const double term2 = k_sqrt_2pi * x / std::tgamma(-a / 2.0)
+                         * kummerM((1.0 - a) / 2.0, 1.5, zz);
+    return std::pow(2.0, a / 2.0) * std::exp(-zz) * (term1 - term2);
 }
 
 // ── CSDA Range ────────────────────────────────────────────────────────────────
@@ -79,45 +112,37 @@ double BraggPeakCalculator::bragPeakDepth_cm(
 
 // ── Bortfeld 1997 depth-dose model ───────────────────────────────────────────
 //
-// Reference: Bortfeld, Med.Phys. 24(12):2024, 1997.
+// Reference: T. Bortfeld, "An analytical approximation of the Bragg curve for
+// therapeutic proton beams", Med.Phys. 24(12):2024-2033, 1997.
 //
-// The model represents the depth-dose of a proton pencil beam as:
+// Closed form (eqs. 27-28), valid in the peak region z ≲ R₀ + 3σ:
 //
-//   D(z) ∝ Φ₀ · (1 + 0.012·R₀) ·
-//           [ 0.99 · (R₀ − z)^(p−1) / B(p, 0.012·R₀+1)   ... spread peak
-//           + 0.00264 · R₀^p · φ((z − R₀·(1−σ²·p/R₀)) / (σ·√R₀)) ] ... Gaussian tail
+//   D(z) = 0.65 · [ g(−1/p, ζ) + σ·k · g(−1/p−1, ζ) ],   ζ = (z − R₀)/σ
 //
-// where:
-//   R₀    = CSDA range [cm]
-//   p     = 1.77 (empirical energy-range exponent for water)
-//   σ     = 0.012 cm^(1/2)  (range straggling parameter)
-//   φ     = Gaussian CDF
-//   B     = Beta function
-//   Φ₀   = primary fluence (normalised to 1)
+// where g(a,x) = e^{−x²/4}·D_a(x) is the Gaussian-weighted parabolic cylinder
+// function (see cylGauss).  The first term is the range-straggled Bragg peak;
+// the second is the nuclear-reaction "tail" (its weight k ∝ ε).
+//
+//   R₀ = CSDA range [cm]            p = 1.77   (Bragg-Kleeman exponent, water)
+//   σ  = range-straggling width      k ≈ 0.01394 (nuclear tail factor)
+//
+// Unlike a bare power law, g(−1/p, ζ) has an integrable cusp at ζ→0⁻, which is
+// what produces the sharp Bragg peak near z = R₀ (peak height ≫ entrance dose).
 
 double BraggPeakCalculator::bortfeldDoseAtDepth(
     const double z_cm,
     const double R0_cm,
-    const double sigma_cm,  // σ·√R₀  [cm]
-    const double p) const
+    const double sigma_cm,
+    const double p,
+    const double k) const
 {
-    const double diff = R0_cm - z_cm;
+    if (sigma_cm <= 0.0) return 0.0;
+    const double zeta = (z_cm - R0_cm) / sigma_cm;
 
-    // Peak term: only for z < R0
-    double peak_term = 0.0;
-    if (diff > 0.0) {
-        const double bfunc = betaFunction(p, 0.012 * R0_cm + 1.0);
-        if (bfunc > 0.0) {
-            peak_term = 0.99 * std::pow(diff, p - 1.0) / bfunc;
-        }
-    }
-
-    // Gaussian tail term (accounts for range straggling and secondary electrons)
-    const double mu_gauss = R0_cm - sigma_cm * sigma_cm * p / R0_cm;
-    const double tail_term = 0.00264 * std::pow(R0_cm, p) *
-                              normalCDF((z_cm - mu_gauss) / sigma_cm);
-
-    return (1.0 + 0.012 * R0_cm) * (peak_term + tail_term);
+    // Bortfeld 1997, eq. 27 (D100 factored out → returns shape, normalised later).
+    constexpr double k_prefactor = 0.65; // eq. 27 leading constant
+    return k_prefactor * (cylGauss(-1.0 / p, zeta)
+                          + sigma_cm * k * cylGauss(-1.0 / p - 1.0, zeta));
 }
 
 std::vector<BraggPeakCalculator::BraggCurvePoint> BraggPeakCalculator::bortfeldProtonCurve(
@@ -135,9 +160,11 @@ std::vector<BraggPeakCalculator::BraggCurvePoint> BraggPeakCalculator::bortfeldP
     if (R0_cm <= 0.0) return curve;
 
     // Bortfeld parameters
-    // p: energy-range exponent; for water p ≈ 1.77. Scale for other materials
-    // using the density correction: p is approximately material-independent.
-    constexpr double p = 1.77;
+    // p: energy-range (Bragg-Kleeman) exponent; for water p ≈ 1.77.  It is
+    // approximately material-independent, so it is reused for other absorbers.
+    constexpr double p = 1.77; // Bortfeld 1997, Fig. 1
+    // k: nuclear-reaction tail factor (∝ ε, the low-energy fluence fraction).
+    constexpr double k = 0.01394; // Bortfeld 1997, eq. 28 / reference fit
 
     // Range straggling sigma [cm] = σ_rel · √(range_in_cm)
     // Typical σ_rel ≈ 0.012 cm^(1/2) for protons in water; energy spread adds in quadrature.
@@ -157,7 +184,9 @@ std::vector<BraggPeakCalculator::BraggCurvePoint> BraggPeakCalculator::bortfeldP
         const double z = static_cast<double>(i) * dz;
         BraggCurvePoint pt;
         pt.depth_cm  = z;
-        pt.dose_rel  = bortfeldDoseAtDepth(z, R0_cm, sigma_cm, p);
+        // Clamp to ≥ 0: the closed form can dip slightly negative in the far
+        // tail (z ≫ R₀), but physical dose is non-negative.
+        pt.dose_rel  = std::max(0.0, bortfeldDoseAtDepth(z, R0_cm, sigma_cm, p, k));
         D_max = std::max(D_max, pt.dose_rel);
         curve.push_back(pt);
     }
