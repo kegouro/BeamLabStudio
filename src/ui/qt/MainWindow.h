@@ -46,6 +46,7 @@ class RunDashboardWidget;
 class StatsDashboardWidget;
 class BioSimPresenter;
 class BioSimView;
+class ValidationView;
 
 class ObjViewerWidget;
 class Scene3DWidget;
@@ -140,6 +141,7 @@ private:
     beamlab::biosim::BioSimWidget* bio_sim_widget_{nullptr};
     BioSimPresenter* bio_sim_presenter_{nullptr};
     BioSimView*      bio_sim_view_{nullptr};
+    ValidationView*  validation_view_{nullptr};
 
     QTableWidget* trajectories_table_{nullptr};
     QTableWidget* focal_slice_table_{nullptr};

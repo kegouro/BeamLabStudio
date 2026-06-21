@@ -40,6 +40,9 @@ add_executable(beamlab_tests
     test_SOBPCalculator.cpp
     ${PROJECT_SOURCE_DIR}/src/biosim/physics/SOBPCalculator.cpp
     ${PROJECT_SOURCE_DIR}/src/biosim/physics/BraggPeakCalculator.cpp
+    # C4: NistValidator headless comparator — pure C++, no Qt.
+    test_NistValidator.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/validation/NistValidator.cpp
 )
 # test_StoppingPowerEngine.cpp — disabled: hardcodes the engine's own output
 # (self-referential, S5 anti-pattern). Superseded by the NIST-fixture test above.

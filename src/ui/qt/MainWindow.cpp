@@ -12,6 +12,7 @@
 #include "ui/qt/StatsDashboardWidget.h"
 #include "ui/qt/presenters/BioSimPresenter.h"
 #include "ui/views/BioSimView.h"
+#include "ui/views/ValidationView.h"
 #include "ui/qt/shell/CommandPalette.h"
 #include "ui/qt/shell/NavigationRail.h"
 
@@ -1289,8 +1290,12 @@ void MainWindow::buildUi()
 
     info_widget_ = new InfoWidget();
 
+    // C4: NIST Validation Panel — pure physics comparison, no domain state needed.
+    validation_view_ = new ValidationView();
+
     nav_rail_->addGroupHeader("SIMULACIÓN");
     addSection("⚛", "BioSim", bio_sim_view_);
+    addSection("⊛", "Validación", validation_view_);
     nav_rail_->addStretch();
     addSection("ⓘ", "Info & Docs", info_widget_);
 
@@ -1586,8 +1591,12 @@ void MainWindow::buildUi()
     showWelcomeScreen();
 
     // ── Command palette (⌘K) ───────────────────────────────────────
-    const char* navNames[] = {"Overview","Scene 3D","Plots","Data","BioSim","Info & Docs"};
-    for (int i = 0; i < 6; ++i) {
+    // C4: "Validación" inserted between BioSim (index 4) and Info & Docs (index 6).
+    // ponytail: indices are offset by Trajectories-3D when that section is present
+    //   (conditional addSection above); the palette entries here match the fixed
+    //   sections only — Trajectories 3D is accessible via its own toolbar.
+    const char* navNames[] = {"Overview","Scene 3D","Plots","Data","BioSim","Validaci\xc3\xb3n","Info & Docs"};
+    for (int i = 0; i < 7; ++i) {
         action_registry_.add({
             std::string("nav.") + std::to_string(i),
             std::string("Ir a ") + navNames[i],

@@ -83,6 +83,9 @@ endif()
 # ── Views (they are compiled with beamlab_ui since they depend on Qt) ──
 target_sources(beamlab_ui PRIVATE
     views/BioSimView.cpp
+    # C4: Validation panel (Qt view + headless comparator)
+    views/ValidationView.cpp
+    validation/NistValidator.cpp
 )
 
 # ── Include paths ──────────────────────────────────────────────────
