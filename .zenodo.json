@@ -1,0 +1,29 @@
+{
+  "title": "BeamLab Studio — análisis de trayectorias de haces",
+  "description": "Herramienta de análisis de trayectorias de haces de partículas con soporte para Geant4, COMSOL y CERN ROOT.",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "MIT",
+  "creators": [
+    {
+      "name": "Labarca Baeza, José",
+      "orcid": "0009-0006-8890-4048",
+      "affiliation": "Universidad Técnica Federico Santa María, Valparaíso, Chile"
+    }
+  ],
+  "keywords": [
+    "beam physics",
+    "Geant4",
+    "ROOT",
+    "particle trajectories",
+    "simulation",
+    "C++"
+  ],
+  "related_identifiers": [
+    {
+      "relation": "isPartOf",
+      "identifier": "https://kegouro.github.io",
+      "scheme": "url"
+    }
+  ]
+}
