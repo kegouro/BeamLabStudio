@@ -1,6 +1,8 @@
 <div align="center">
 
-# ⚡ BeamLabStudio v3.0 "Antares"
+<img src="assets/brand/banner.png" alt="BeamLabStudio Banner" width="100%" />
+
+# <img src="assets/brand/logo.png" width="40" align="top" alt="Logo"> BeamLabStudio v3.0 "Antares"
 
 ### Scientific analysis platform for particle trajectory data.
 ### _Plataforma científica para análisis de trayectorias de partículas._
